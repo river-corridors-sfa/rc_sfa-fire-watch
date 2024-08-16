@@ -1,0 +1,183 @@
+---
+title: "01_Identify_impacted_watersheds"
+output: html_document
+date: "2024-08-16"
+editor_options: 
+  chunk_output_type: console
+---
+
+The purpose of this script is to load in active fire shape files and then identify flowlines that are influenced downstream of them. 
+
+Script Workflow:
+
+Step 1)
+
+Step 2) 
+
+Step 3) 
+
+
+# Status: in progress
+
+# ==============================================================================
+# Author: Jake Cavaiani; jake.cavaiani@pnnl.gov 
+# 16 August 2024
+# ==============================================================================
+
+## Load packages and set working directory
+```{r Jake/Mac}
+#for Jake/mac
+
+rm(list=ls(all=T)) #this clears your Environment
+
+# Load the packages
+library(ggplot2)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(dplyr)
+library(here)
+library(nhdplusTools)
+```
+
+
+```{r Plot Yakima River Basin with Retreat Fire}
+# Load your local shapefile (replace with your file path)
+retreat_shape <- st_read(here("Fires_2024", "Retreat_Fire", "Retreat_Fire.shp"))
+
+ggplot(data = retreat_shape) +
+  geom_sf(fill = "transparent", color = "red") # Overlay the shapefile
+
+# Plot Yakima River Basin (YRB)
+yakima_shape <- st_read(here("inputs", "Yakima_River_Basin", "Yakima_River_Basin.shp"))
+
+ggplot(data = yakima_shape) +
+  geom_sf(fill = "lightblue", color = "black") +  # Plot Yakima River Basin
+  geom_sf(data = retreat_shape, fill = "transparent", color = "red") + # Overlay the shapefile
+  theme_bw()
+
+
+```
+
+```{r pulling SFA site info and getting HUCs}
+# Reading in data package data of coordinates of all of our sites
+sfa_coords <- read_csv(here("inputs", "v3_RCSFA_Geospatial_Site_Information.csv"))
+
+# Converting to a sf object
+sfa_coords <- sfa_coords %>%
+  st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326) %>% 
+  dplyr::select(Site_ID, COMID, geometry) %>% 
+  dplyr::mutate(usgs_id = NA) %>% 
+  filter(COMID != -9999)
+
+sfa_coords_filter <- sfa_coords %>% 
+  filter(Site_ID %in% c("S49R", "S50P", "S55", "S65"))
+
+# Pull HUCs by site_id
+pull_huc12 <- function(i){
+  
+  x <- sfa_coords %>% slice(i)
+  
+  get_huc(AOI = x, 
+          type = "huc12") %>% 
+    mutate(Site_ID = x$Site_ID) %>% 
+    dplyr::select(huc12, 
+           Site_ID)
+}
+
+## Pull HUC8s for all sites
+hucs_by_site <- 1:nrow(sfa_coords) %>% 
+  future_map(pull_huc12) %>% 
+  bind_rows()
+
+## From 328 sites to 241 unique HUC8s
+unique_hucs <- hucs_by_site %>% 
+  distinct(huc12, .keep_all = TRUE)
+
+# Peter code
+# Find HUCs that intersect with fire 
+
+# interesect_huc_and_fire <- function(i){
+# 
+#   huc <- unique_hucs %>% slice(i)
+# 
+#   st_intersection(huc, retreat_shape) %>%
+#     st_drop_geometry() %>%
+#     mutate(huc12 = huc$huc12) %>%
+#     select(fire_id, huc12)
+# }
+# 
+# # 1-10
+# hucs_and_mtbs <- 1:10 %>%
+#   #1 %>%
+#   future_map(interesect_huc_and_fire) %>%
+#   bind_rows()
+# 
+# write_csv(hucs_and_mtbs, "data/240801_intersecting_hucs_and_mtbs_1-50.csv")
+
+# # Find HUCs that intersect with fire 
+hucs_fire_intersection <- st_intersection(unique_hucs, retreat_shape)
+
+hucs_intersected <- unique_hucs[st_intersects(unique_hucs, retreat_shape, sparse = FALSE), ]
+
+intersected_hucs_df <- as.data.frame(hucs_intersected)
+
+intersected_hucs_df <- intersected_hucs_df %>% 
+  mutate(huc12 = as.numeric(huc12))
+
+# Plot HUCS that intersect with fire perimeter 
+ggplot() +
+  geom_sf(data = hucs_intersected, fill = "lightblue", alpha = 0.25, color = "darkblue") +
+  geom_sf(data = retreat_shape, fill = "red", alpha = 0.5) +
+  theme_minimal() +
+  labs(title = "HUCs Intersecting with Fire Perimeter",
+       x = "Longitude",
+       y = "Latitude")
+
+# Get spatial data with associated comids
+# Define your COMIDs of interest
+comids <- c(24423233, 24422713, 24423517, 24424705)  # S49R, S50P, S55, S65
+
+# Get the flowline data for the specified COMIDs
+flowlines <- get_nhdplus(comid = comids, realization = "flowline")
+
+# Plot the flowlines using ggplot2
+ggplot() +
+  geom_sf(data = hucs_intersected, fill = "lightblue", alpha = 0.25, color = "black") +
+  geom_sf(data = flowlines, color = "blue", size = 1) +
+  geom_sf(data = retreat_shape, fill = "red", alpha = 0.5) +
+  theme_bw() +
+  labs(title = "Flowlines with HUCs that intersect the Retreat Fire",
+       x = "Longitude",
+       y = "Latitude")
+
+# Pull the comid from the flowlines closest to the site
+site_comid <- flowlines %>% 
+  slice(st_nearest_feature(hucs_intersected))
+
+# Pull comids inside fire
+fire_flowlines <- st_intersection(retreat_shape, flowlines)
+
+# Subset flowlines to everything upstream of site_comid
+upstream_flowlines <- flowlines %>%
+    filter(comid %in% get_UT(flowlines, comid = site_comid %>% pull(comid)))
+
+ggplot() +
+    geom_sf(data = hucs_intersected, fill = "lightblue", alpha = 0.20) +
+    geom_sf(data = flowlines, aes(alpha = streamorde),
+            show.legend = F) +
+    geom_sf(data = retreat_shape, fill = "orange", alpha = 0.8, color = "red") +
+    geom_sf(data = upstream_flowlines, size = 5, color = "blue") +
+    geom_sf(data = sfa_coords_filter, size = 2) +
+    geom_sf(data = fire_flowlines, size = 10, color = "blue") +
+    theme_bw()
+  
+```
+
+
+
+
+
+
+
+
