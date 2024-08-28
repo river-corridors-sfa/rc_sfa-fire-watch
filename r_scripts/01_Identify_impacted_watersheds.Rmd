@@ -38,6 +38,7 @@ library(rnaturalearthdata)
 library(dplyr)
 library(here)
 library(nhdplusTools)
+library(furrr)
 ```
 
 
@@ -56,6 +57,24 @@ ggplot(data = yakima_shape) +
   geom_sf(data = retreat_shape, fill = "transparent", color = "red") + # Overlay the shapefile
   theme_bw()
 
+# Plot Gauge sites 
+yakima_gage_shape <- st_read(here("inputs", "Yakama_Gages", "Yakama_Gages.shp")) 
+
+ggplot(data = yakima_shape) +
+  geom_sf(fill = "lightblue", color = "black") + # Plot Yakima River Basin
+  geom_sf(data = retreat_shape, fill = "transparent", color = "red") +
+  geom_sf(data = yakima_gage_shape, color = "darkred") +
+  theme_bw()
+
+# Plot HUCs with data
+huc10_with_data <- st_read(here("inputs", "Huc10_withData", "Huc10_withData.shp")) 
+
+ggplot(data = huc10_with_data) +
+  geom_sf(fill = "darkgreen", alpha = 0.2, color = "black") + 
+  geom_sf(data = yakima_shape, fill = "lightblue", alpha = 0.75, color = "black") +
+  geom_sf(data = retreat_shape, fill = "transparent", color = "red") +
+  geom_sf(data = yakima_gage_shape, color = "darkred") +
+  theme_bw()
 
 ```
 
@@ -74,25 +93,25 @@ sfa_coords_filter <- sfa_coords %>%
   filter(Site_ID %in% c("S49R", "S50P", "S55", "S65"))
 
 # Pull HUCs by site_id
-pull_huc12 <- function(i){
+pull_huc10 <- function(i){
   
   x <- sfa_coords %>% slice(i)
   
   get_huc(AOI = x, 
-          type = "huc12") %>% 
+          type = "huc10") %>% 
     mutate(Site_ID = x$Site_ID) %>% 
-    dplyr::select(huc12, 
+    dplyr::select(huc10, 
            Site_ID)
 }
 
-## Pull HUC8s for all sites
+## Pull HUC10s for all sites
 hucs_by_site <- 1:nrow(sfa_coords) %>% 
-  future_map(pull_huc12) %>% 
+  future_map(pull_huc10) %>% 
   bind_rows()
 
-## From 328 sites to 241 unique HUC8s
+## From 328 sites to 184 unique HUC8s
 unique_hucs <- hucs_by_site %>% 
-  distinct(huc12, .keep_all = TRUE)
+  distinct(huc10, .keep_all = TRUE)
 
 # Peter code
 # Find HUCs that intersect with fire 
@@ -123,7 +142,7 @@ hucs_intersected <- unique_hucs[st_intersects(unique_hucs, retreat_shape, sparse
 intersected_hucs_df <- as.data.frame(hucs_intersected)
 
 intersected_hucs_df <- intersected_hucs_df %>% 
-  mutate(huc12 = as.numeric(huc12))
+  mutate(huc10 = as.numeric(huc10))
 
 # Plot HUCS that intersect with fire perimeter 
 ggplot() +
@@ -170,6 +189,7 @@ ggplot() +
     geom_sf(data = upstream_flowlines, size = 5, color = "blue") +
     geom_sf(data = sfa_coords_filter, size = 2) +
     geom_sf(data = fire_flowlines, size = 10, color = "blue") +
+    geom_sf(data = yakima_gage_shape, color = "darkred") +
     theme_bw()
   
 ```

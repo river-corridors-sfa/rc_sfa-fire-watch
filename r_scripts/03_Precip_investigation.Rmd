@@ -1,0 +1,132 @@
+---
+title: "03_Precip_investigation"
+output: html_document
+date: "2024-08-28"
+editor_options: 
+  chunk_output_type: console
+---
+
+The purpose of this script is to investigate the historical precip data in and around the Tieton watershed
+
+Script Workflow:
+
+Step 1) Load in precipitation data from the hydromet station database: https://www.usbr.gov/pn/hydromet/yakima/yakwebarcread.html
+
+Step 2) Plot the time series and perform some summary stats to get an idea of when it rains
+
+Step 3) Plot high precip events
+
+
+# Status: in progress
+
+# ==============================================================================
+# Author: Jake Cavaiani; jake.cavaiani@pnnl.gov 
+# 28 August 2024
+# ==============================================================================
+
+## Load packages and set working directory
+```{r Jake/Mac}
+#for Jake/mac
+
+rm(list=ls(all=T)) #this clears your Environment
+
+# Load the packages
+library(ggplot2)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(dplyr)
+library(here)
+library(nhdplusTools)
+library(furrr)
+library(readr)
+library(lubridate)
+```
+
+# Hydromet TICW (could use as an Oak Creek Proxy precip data) 
+```{r}
+ticw_daily_precip <- read_csv(here("inputs", "Climate", "tieton_ticw_daily_precip.csv"), 
+                              skip = 1)
+
+ticw_daily_precip <- ticw_daily_precip %>% 
+  mutate(DateTime = mdy(DateTime)) %>% 
+  na.omit(ticw_pp) %>% 
+  filter(ticw_pp >= 0 & ticw_pp <= 10)
+
+# Plot time series
+ggplot(ticw_daily_precip, aes(x = DateTime, y = ticw_pp)) +
+  geom_bar(stat = "identity") + 
+  scale_y_reverse() +
+  ylim(5,0) +
+  labs(x = "Date", y = "Precipitation (In)", title = "Daily Precipitation Time Series") +
+  theme_bw()  
+
+```
+
+# Investigate first rain day above average for each year
+```{r}
+# Extract year and month from the Date column
+ticw_daily_precip <- ticw_daily_precip %>%
+  mutate(Year = year(DateTime), Month = month(DateTime), Day = day(DateTime))
+
+# Calculate the first day with precipitation greater than the average after August for each year
+first_high_precip_day <- ticw_daily_precip %>%
+  group_by(Year) %>%
+  mutate(Avg_Precip = mean(ticw_pp, na.rm = TRUE)) %>% 
+  filter(ticw_pp > Avg_Precip) %>% 
+  filter(Month > 8) %>% 
+  slice_min(DateTime) %>%  # Find the first day with precipitation greater than the average
+  ungroup()  # Ungroup to finalize the data frame
+
+first_precip_days <- first_high_precip_day %>% 
+  pull(DateTime)
+
+# ggplot(ticw_daily_precip, aes(x = DateTime, y = ticw_pp)) +
+#   geom_bar(stat = "identity") + 
+#   scale_y_reverse() +
+#   ylim(5,0) +
+#   geom_vline(xintercept = as.numeric(first_precip_days), color = "red", linetype = "dashed") +  
+#   labs(x = "Date", y = "Precipitation (In)", title = "Daily Precipitation Time Series") +
+#   theme_bw()  
+
+
+# Calculate the average day #
+average_month_day <- first_high_precip_day %>%
+  mutate(DayOfYear = yday(DateTime)) %>%  
+  summarise(AverageDayOfYear = mean(DayOfYear, na.rm = TRUE)) %>%  
+  pull(AverageDayOfYear) %>%  
+  as.Date(origin = "1970-01-01") %>%  
+  format("%m-%d")  
+
+# * Septmeber 17th!* #
+```
+
+# Investigate high precip days 
+```{r}
+# Filter the dates with precipitation greater than 2 inches
+high_precip_days <- ticw_daily_precip %>%
+  filter(ticw_pp > 2) %>%
+  filter(Month > 8) %>% 
+  pull(DateTime)
+
+# Calculate the average month and day
+high_average_month_day <- high_precip_days %>%
+  # Extract the day of the year
+  yday() %>%
+  # Calculate the average day of the year
+  mean(na.rm = TRUE) %>%
+  # Convert the average day of the year to Date format
+  as.Date(origin = "1970-01-01") %>%
+  # Format to get just month and day
+  format("%m-%d")
+
+
+ggplot(ticw_daily_precip, aes(x = DateTime, y = ticw_pp)) +
+  geom_bar(stat = "identity") + 
+  scale_y_reverse() +
+  ylim(5,0) +
+  geom_vline(xintercept = as.numeric(high_precip_days), color = "red", linetype = "dashed") +  
+  labs(x = "Date", y = "Precipitation (In)", title = "Daily Precipitation Time Series") +
+  theme_bw()  
+
+```
