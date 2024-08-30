@@ -1,0 +1,141 @@
+---
+title: "04_Oak_Creek_Q_Contribution"
+output: html_document
+date: "2024-08-30"
+editor_options: 
+  chunk_output_type: console
+---
+
+The purpose of this script is to investigate the contribution of Oak Creek to the Tieton. We are going to look at both the National Water Model outputs for Oak Creek but we will also use the time series of Q for S49R from the Schneider Springs sampling campaign and compare it to the TICW Q from the hydromet station
+
+National Water Model: https://towardsdatascience.com/how-to-crack-open-netcdf-files-in-r-and-extract-data-as-time-series-24107b70dcd
+
+Hydromet Station: https://www.usbr.gov/pn/hydromet/yakima/yakwebarcread.html
+
+Script Workflow:
+
+Step 1) Load in precipitation data from the hydromet station database
+
+Step 2) Plot the time series and perform some summary stats to get an idea of when it rains
+
+Step 3) Plot high precip events
+
+
+# Status: in progress
+
+# ==============================================================================
+# Author: Jake Cavaiani; jake.cavaiani@pnnl.gov 
+# 30 August 2024
+# ==============================================================================
+
+
+## Load packages and set working directory
+```{r Jake/Mac}
+#for Jake/mac
+
+rm(list=ls(all=T)) #this clears your Environment
+
+# Load the packages
+library(ggplot2)
+library(tidyverse)
+library(here)
+```
+
+# Plot National Water Model data for Schneider Springs Sites (S49R, S54) 
+```{r load from SSF data}
+# Load nwm outouts for S49R
+S49R_nwm <- read_csv("~/GitHub/rc_sfa-rc_3-SSF/data/nwm_velocity_extract/S49R_updated.csv")
+
+# plot time series of discharge
+ggplot(data = S49R_nwm, aes(x = DateTime, y = ms)) +
+  geom_point() +
+  xlab("") +
+  ylab("Q (m/s)") +
+  ggtitle("S49R NWM - 2023 - Hourly") +
+  theme_bw()
+
+mean(S49R_nwm$ms, na.rm = TRUE) # 1.824444
+median(S49R_nwm$ms, na.rm = TRUE) # 1.62
+range(S49R_nwm$ms, na.rm = TRUE) # [1.09, 3.19]
+
+# Load nwm outouts for S49R
+S54_nwm <- read_csv("~/GitHub/rc_sfa-rc_3-SSF/data/nwm_velocity_extract/S54_updated.csv")
+
+# plot time series of discharge
+ggplot(data = S54_nwm, aes(x = DateTime, y = ms)) +
+  geom_point() +
+  xlab("") +
+  ylab("Q (m/s)") +
+  ggtitle("S54 NWM - 2023 - Hourly") +
+  theme_bw()
+
+mean(S54_nwm$ms, na.rm = TRUE) # 1.849129
+median(S54_nwm$ms, na.rm = TRUE) # 1.63
+range(S54_nwm$ms, na.rm = TRUE) # [1.10, 3.22]
+
+
+# Find the difference between S54 (upstream of the Oak Creek confluence) and S49R (downstream of the Oak Creek confluence)
+Q_difference_nwm <- S49R_nwm %>% 
+  select(DateTime) %>% 
+  mutate(Oak_Creek_Q_ms = S54_nwm$ms - S49R_nwm$ms,
+         Oak_Creek_Q_Ls = Oak_Creek_Q_ms * 1000)
+  
+  
+# plot time series of discharge
+ggplot(data = Q_difference_nwm, aes(x = DateTime, y = Oak_Creek_Q_ms)) +
+  geom_point() +
+  xlab("") +
+  ylab("Q (m/s)") +
+  ggtitle("Interpolated Oak Creek NWM output - 2023 - Hourly") +
+  theme_bw()
+
+# plot time series of discharge
+ggplot(data = Q_difference_nwm, aes(x = DateTime, y = Oak_Creek_Q_Ls)) +
+  geom_point() +
+  ylim(-100, 200) +
+  xlab("") +
+  ylab("Q (m/s)") +
+  ggtitle("Interpolated Oak Creek NWM output - 2023 - Hourly") +
+  theme_bw()
+```
+
+# Pull Oak Creek National Water Model data 
+```{r}
+library(nwm)
+library(rasterVis)
+install.packages("nwm")
+
+# Extract NWM flow records for comid-101 and comid-17595383
+nhd_extract <- readNWMdata(comid = c(101,17595383))
+readNw
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

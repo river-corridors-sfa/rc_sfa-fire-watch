@@ -98,7 +98,57 @@ average_month_day <- first_high_precip_day %>%
   as.Date(origin = "1970-01-01") %>%  
   format("%m-%d")  
 
+range(first_high_precip_day$Month)
+range(first_high_precip_day$Day)
+
+# Range: 9/2 - 10/22
+
 # * Septmeber 17th!* #
+```
+
+# Investigate days where we saw discharge double (from down below script) 
+```{r}
+# Filter the dates with precipitation greater than 2 inches
+high_discharge_days <- ticw_daily_precip %>%
+  filter(ticw_pp > 0.47) %>%
+  filter(Month > 8 & Month < 11) %>% 
+  pull(DateTime)
+
+# Calculate the average month and day
+high_average_month_day <- high_discharge_days %>%
+  # Extract the day of the year
+  yday() %>%
+  # Calculate the average day of the year
+  mean(na.rm = TRUE) %>%
+  # Convert the average day of the year to Date format
+  as.Date(origin = "1970-01-01") %>%
+  # Format to get just month and day
+  format("%m-%d")
+
+# Range: 9/7 - 10/30
+# October 18th. 
+
+
+ggplot(ticw_daily_precip, aes(x = DateTime, y = ticw_pp)) +
+  geom_bar(stat = "identity") + 
+  scale_y_reverse() +
+  ylim(5,0) +
+  geom_vline(xintercept = as.numeric(high_discharge_days), color = "red", linetype = "dashed") +  
+  labs(x = "Date", y = "Precipitation (In)", title = "Daily Precipitation Time Series") +
+  theme_bw()  
+
+# Only looking at one year 
+ggplot(ticw_daily_precip, aes(x = DateTime, y = ticw_pp)) +
+  geom_bar(stat = "identity") + 
+  scale_y_reverse() +
+  ylim(5,0) +
+  scale_x_date(limits = as.Date(c("2019-10-01", "2020-09-30"))) +
+  geom_vline(xintercept = as.numeric(high_discharge_days), color = "red", linetype = "dashed") +  
+  labs(x = "Date", y = "Precipitation (In)", title = "Daily Precipitation Time Series") +
+  theme_bw()  
+  
+       
+
 ```
 
 # Investigate high precip days 
@@ -130,3 +180,460 @@ ggplot(ticw_daily_precip, aes(x = DateTime, y = ticw_pp)) +
   theme_bw()  
 
 ```
+
+
+### Oak Creek geospatial investigation 
+I want to investigate a gauged system in the watershed that is NOT influenced by a dam to see if I can correlation precip with a response in Q and use that as a threshold for Oak Creek.
+
+Step 1: Extract Oak Creek geospatial data by using the Katie Willi code with other sites that may be used to compare. 
+
+```{r setup, include=TRUE, echo = T, warning = F, comment = F, message = FALSE}
+rm(list = ls())
+library(sf)
+library(tidyverse)
+library(terra)
+library(nhdplusTools)
+library(mapview)
+library(dataRetrieval)
+library(lubridate)
+library(prism)
+library(ggspatial)
+library(nngeo)# Added from original code
+library(stars)# Added from original code
+library(here)
+library(webshot)
+
+# this gives you an error, but it can be ignored:
+try(plyr::ldply(list.files(path = here("r_scripts", "data", "src"),
+                           pattern="*.R",
+                           full.names=TRUE),
+                source))
+# Rmarkdown options
+knitr::opts_chunk$set(echo = T, warning = F, comment = F, message = F)
+
+# mapview options
+mapviewOptions(basemaps.color.shuffle=FALSE,basemaps='OpenTopoMap')
+
+```
+
+```{r read in exploratory sites that may be used to compare to how Oak Creek would respond}
+sf_use_s2(FALSE)
+
+site_type = "xy" # OR site_type = "comid"
+
+sites <- read_csv(here("Fires_2024", "Retreat_Fire", "site_selection", "initial_search", "oak_creek_precip_gage_comp.csv"), na = c('-9999', 'N/A'))
+
+```
+
+Additional steps for sites with coordinates, and no COMID:
+
+```{r}
+if(site_type == "xy"){
+  sites <- sites %>%
+    dplyr::select(site, latitude, longitude) %>% 
+    sf::st_as_sf(coords = c("longitude","latitude"), crs = 4269) # 4269 = NAD83 CRS
+  
+  if(sf::st_crs(sites) != sf::st_crs(4269)){
+    sites <- sites %>% st_transform(., crs = 4269)
+  }
+  
+  mapview(sites)
+}
+
+```
+
+Pull all meta data associated with each site's COMID. 
+
+```{r}
+setwd(here("r_scripts"))
+
+if(site_type == "xy"){
+  sites <- getNHDxy(df = sites)
+}
+
+site_watersheds <- getWatersheds(df = sites, make_pretty = TRUE) %>%
+  inner_join(., dplyr::select(sf::st_drop_geometry(sites), site, comid), by = "comid")
+
+```
+
+
+Interactive map showing all sites and their delineated watersheds:
+
+```{r}
+mapview(site_watersheds, col.regions = "#56B4E9", alpha.regions = 0.2, lwd = 3, layer.name = "Watershed") +
+  mapview(sites, cex = 5, col.regions = "black", layer.name = "Points") + 
+  mapview(st_read('~/GitHub/rc_sfa-fire-watch/r_scripts/data/site_flowlines.gpkg', quiet = T), lwd = 3, color = "red", layer.name = "Flowline")
+```
+
+```{r}
+map2(sites$site, sites$comid, getMaps) 
+```
+
+### Extract more geospatial data about these watersheds ###
+```{r}
+# Extract National Hydrological Data
+sites <- getNHDcomid(df = sites)
+
+
+# # Extract the mean aridity index within each site's watershed as well as each site's location
+# sites <- getAridity(df = sites, sf = site_watersheds)
+# 
+# # Extract Omernik ecoregion for each site's location
+# sites <- getOmernikSite(df = sites)
+# 
+# # Extract dominant Omernik ecoregion within each site's watershed
+# sites <- getOmernikWs(df = sites, sf = site_watersheds)
+# 
+# # Extract PRSIM ppt, tmean, tmax, and tmin data for each site's location
+# sites_prism <- getPRISM(df = sites)
+# 
+# # Extract mean chemistry values within each site's watershed as well as each site's locationa
+# sites <- getChemistry(df = sites, sf = site_watersheds)
+```
+
+
+```
+
+```{r summary stats of each exploratory watershed}
+# Stream order
+ggplot(data = sites, aes(x = site, y = streamorde, fill = site == "Oak_Creek")) +
+  geom_col() +
+  scale_fill_manual(values = c("TRUE" = "#56B4E9", "FALSE" = "gray")) +
+  theme_bw() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = -10))
+  
+
+# Watershed size
+sites <- sites %>% 
+  mutate(totdasqkm = as.numeric(totdasqkm))
+
+ggplot(data = sites, aes(x = site, y = totdasqkm, fill = site == "Oak_Creek")) +
+  geom_col() +
+  scale_fill_manual(values = c("TRUE" = "#56B4E9", "FALSE" = "gray")) +
+  theme_bw() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = -10))
+
+```
+
+
+# Extract hydrologic data
+```{r American River}
+# American River Near Nile, WA - 12488500
+siteNo <- "12488500"
+pCode <- "00060"
+start.date <- "2014-01-01"
+end.date <- "2024-08-01"
+
+american <- readNWISuv(siteNumbers = siteNo,
+                     parameterCd = pCode,
+                     startDate = start.date,
+                     endDate = end.date)
+
+# Fix the names 
+american <- renameNWISColumns(american)
+
+parameterInfo <- attr(american, "variableInfo")
+siteInfo <- attr(american, "siteInfo")
+
+# plot 
+ggplot(data = american, aes(x = dateTime, y = Flow_Inst)) +
+  geom_line() +
+  xlab("") +
+  ylab(parameterInfo$variableDescription) +
+  ggtitle(siteInfo$station_nm) +
+  theme_bw()
+
+# calculate daily average Q #
+american <- american %>%
+  mutate(Year = year(dateTime), Month = month(dateTime), Day = day(dateTime))
+
+daily_avg <- american %>% 
+  group_by(Year, Month, Day) %>% 
+  summarize(daily_discharge = mean(Flow_Inst, na.rm = TRUE))
+
+# Extract days where discharge doubled
+# Create a lagged column for comparison
+daily_avg <- daily_avg %>%
+  arrange(Year, Month, Day) %>%
+  mutate(previous_day_discharge = lag(daily_discharge)) %>%
+  filter(!is.na(previous_day_discharge)) %>%
+  mutate(doubled_discharge = daily_discharge >= 2 * previous_day_discharge) %>%
+  filter(doubled_discharge)
+
+# Create a Date column and pull the date when discharge doubles
+doubled_discharge <- daily_avg %>%
+  mutate(DateTime = make_date(Year, Month, Day)) %>% 
+  select(DateTime, daily_discharge, previous_day_discharge) %>% 
+  pull(DateTime)
+
+# Create a vector that also includes the previous day
+previous_days_vector <- doubled_discharge - 1
+
+# Merge the two
+all_days_vector <- c(previous_days_vector, doubled_discharge)
+
+# Pull the precip for these days
+precip_doubled_discharge <- ticw_daily_precip %>% 
+  filter(DateTime %in% all_days_vector)
+
+summary_precip <- precip_doubled_discharge %>% 
+  summarize(mean_precip = mean(ticw_pp))
+# 0.4758442 inches
+```
+
+```{r Toppenish Creek - USGS gauge: 12506000}
+# Toppenish Creek near Fort Simcoe, WA - 12506000
+siteNo <- "12506000"
+pCode <- "00060"
+start.date <- "2014-01-01"
+end.date <- "2024-08-01"
+
+toppenish <- readNWISuv(siteNumbers = siteNo,
+                     parameterCd = pCode,
+                     startDate = start.date,
+                     endDate = end.date)
+
+# Fix the names 
+toppenish <- renameNWISColumns(toppenish)
+
+parameterInfo <- attr(toppenish, "variableInfo")
+siteInfo <- attr(toppenish, "siteInfo")
+
+# plot 
+ggplot(data = toppenish, aes(x = dateTime, y = Flow_Inst)) +
+  geom_line() +
+  xlab("") +
+  ylab(parameterInfo$variableDescription) +
+  ggtitle(siteInfo$station_nm) +
+  theme_bw()
+
+# calculate daily average Q #
+toppenish <- toppenish %>%
+  mutate(Year = year(dateTime), Month = month(dateTime), Day = day(dateTime))
+
+daily_avg <- toppenish %>% 
+  group_by(Year, Month, Day) %>% 
+  summarize(daily_discharge = mean(Flow_Inst, na.rm = TRUE))
+
+# Extract days where discharge doubled
+# Create a lagged column for comparison
+daily_avg <- daily_avg %>%
+  arrange(Year, Month, Day) %>%
+  mutate(previous_day_discharge = lag(daily_discharge)) %>%
+  filter(!is.na(previous_day_discharge)) %>%
+  mutate(doubled_discharge = daily_discharge >= 2 * previous_day_discharge) %>%
+  filter(doubled_discharge)
+
+# Create a Date column and pull the date when discharge doubles
+doubled_discharge <- daily_avg %>%
+  mutate(DateTime = make_date(Year, Month, Day)) %>% 
+  select(DateTime, daily_discharge, previous_day_discharge) %>% 
+  pull(DateTime)
+
+# Create a vector that also includes the previous day
+previous_days_vector <- doubled_discharge - 1
+
+# Merge the two
+all_days_vector <- c(previous_days_vector, doubled_discharge)
+
+# Pull the precip for these days
+precip_doubled_discharge <- ticw_daily_precip %>% 
+  filter(DateTime %in% all_days_vector)
+
+summary_precip <- precip_doubled_discharge %>% 
+  summarize(mean_precip = mean(ticw_pp))
+
+# 0.4905455 inches
+```
+
+
+
+
+
+
+
+
+
+
+#############################################################################################
+
+
+### SCRIPT GRAVEYARD
+```{r}
+# Filter by year
+american_2020 <- american %>% 
+  filter(dateTime > "2019-10-01 00:00:00" & dateTime < "2020-09-30 00:00:00")
+
+ggplot(data = american_2020, aes(x = dateTime, y = Flow_Inst)) +
+  geom_line() +
+  xlab("") +
+  ylab(parameterInfo$variableDescription) +
+  ggtitle(siteInfo$station_nm, "WY 2020") +
+  theme_bw()
+
+# Add precip on top of this year
+ticw_daily_precip_2020 <- ticw_daily_precip %>% 
+  filter(DateTime >= "2019-10-01 00:00:00" & DateTime <= "2020-09-30 00:00:00")
+
+ticw_daily_precip_2020 <- ticw_daily_precip_2020 %>% 
+  mutate(DateTime = as.POSIXct(DateTime, tz = "UTC", format = "%Y-%m-%d %H:%M:%OS"))
+
+ggplot() +
+  # Plot discharge data
+  geom_line(data = american_2020, aes(x = dateTime, y = Flow_Inst), color = "#56B4E9") +
+  # Plot precipitation data on a secondary y-axis
+  geom_col(data = ticw_daily_precip_2020, aes(x = DateTime, y = mean * scale_factor), fill = "gray", alpha = 0.5) +
+ # Adjust scales to match desired limits and axis positions
+  scale_y_continuous(name = "Q (cfs)",  # Primary y-axis label
+    sec.axis = sec_axis(~ . / scale_factor, name = "TICW Bureau of land Rec (In)"))  
+
+
+plot(american_2020$Flow_Inst ~ american_2020$dateTime, type = "l", xlab = "", ylab = "Q (cfs)")
+par(new = T)
+  
+plot(ticw_daily_precip_2020$ticw_pp ~ ticw_daily_precip_2020$DateTime, type = "h", 
+     ylim = c(2,0),
+     axes = F, xlab = "", ylab = "")
+axis(side = 4)
+
+# TAKE 2 #
+# Define your y-axis limits for discharge and precipitation
+discharge_limits <- c(0, 1500)  # Adjust these limits based on your data range
+precipitation_limits <- c(0, 2) # Adjust these limits based on your data range
+
+# Plot
+ggplot() +
+  # Discharge plot (line)
+  geom_line(data = american_2020, aes(x = dateTime, y = Flow_Inst), color = "#56B4E9") +
+  # Manually set y-axis scale for discharge
+  scale_y_continuous(
+    name = "Q (cfs)",
+    limits = discharge_limits,
+    sec.axis = sec_axis(~ ., name = "Precipitation (inches)", breaks = seq(0, precipitation_limits[2], by = 1))
+  ) +
+  # Precipitation plot (bar) on secondary y-axis, using the same x-axis
+  geom_bar(data = ticw_daily_precip_2020, aes(x = DateTime, y = ticw_pp), 
+           stat = "identity", fill = "grey", color = "grey") +
+  # Manually set secondary y-axis scale for precipitation
+  scale_y_continuous(
+    name = "",
+    sec.axis = sec_axis(trans = ~ ., name = "Precipitation (inches)", 
+                        breaks = seq(precipitation_limits[1], precipitation_limits[2], by = 1))
+  ) +
+  # Theme adjustments
+  theme_bw() +
+  theme(
+    axis.title.y.right = element_text(color = "grey"), # Adjust right y-axis label color
+    axis.text.y.right = element_text(color = "grey"),  # Adjust right y-axis text color
+    axis.text.y = element_text(color = "blue"),        # Adjust left y-axis text color
+    axis.title.y = element_text(color = "blue"),       # Adjust left y-axis label color
+    axis.text.y.left = element_text(color = "blue"),   # Ensure left y-axis text is blue
+    axis.title.y.left = element_text(color = "blue")   # Ensure left y-axis label is blue
+  ) +
+  labs(x = "", y = "Q (cfs)") # Labels
+
+### TAKE 3 ###
+# Plot precip
+ggplot(ticw_daily_precip_2020, aes(x = DateTime, y = ticw_pp)) +
+  geom_bar(stat = "identity", fill = "black", color = "gray") + 
+  scale_y_reverse() +
+  ylim(2,0) +
+  labs(x = "Date", y = "Precipitation (In)", title = "Daily Precipitation Time Series") +
+  theme_bw()  
+
+# Plot Q
+ggplot(data = american_2020) +
+  geom_line(aes(x = dateTime, y = Flow_Inst), color = "#56B4E9") +
+  xlab("") +
+  ylab(parameterInfo$variableDescription) +
+  ggtitle(siteInfo$station_nm, "WY 2020") +
+  theme_bw()
+
+# Plot both:
+ggplot(data = american_2020, aes(x = dateTime, y = Flow_Inst), color = "#56B4E9") +
+  geom_line()
+par(new = T)  
+  
+ggplot(ticw_daily_precip_2020, aes(x = DateTime, y = ticw_pp)) +
+  geom_bar(stat = "identity", fill = "black", color = "gray") + 
+  scale_y_reverse() +
+  ylim(2,0)
+
+
+
+### TAKE 4 ###
+# Combine the plots
+# Plot
+ggplot() +
+  # Precipitation plot as inverted bars
+  geom_bar(data = ticw_daily_precip_2020, aes(x = DateTime, y = ticw_pp), 
+           stat = "identity", fill = "black", color = "gray") + 
+  # Add a secondary y-axis for precipitation and invert it
+  scale_y_reverse(
+    sec.axis = sec_axis(
+      ~ .,  # This will create a secondary axis for precipitation
+      name = "Precipitation (Inches)",
+      breaks = seq(0, 2, by = 0.5))) +
+  # Discharge plot as a line
+  geom_line(data = american_2020, aes(x = dateTime, y = Flow_Inst), color = "#56B4E9") +
+  # Discharge axis
+  scale_y_continuous(
+    name = "Q (cfs)",
+    limits = c(0, 1500),  # Adjust limits based on your discharge data
+    sec.axis = sec_axis(
+      trans = ~ . * 2 / 1500,  # Scale precipitation relative to discharge axis
+      name = "Precipitation (Inches)"
+    )
+  )
+
+
+# par (new = T)
+install.packages("patchwork")
+library(patchwork)
+
+# Plot precip
+p1 <- ggplot(ticw_daily_precip_2020, aes(x = DateTime, y = ticw_pp)) +
+  geom_bar(stat = "identity", fill = "black", color = "gray") + 
+  scale_y_reverse() +
+  ylim(2,0) +
+  labs(x = "Date", y = "Precipitation (In)", title = "Daily Precipitation Time Series") +
+  theme_bw()  
+
+# Plot Q
+p2 <- ggplot(data = american_2020) +
+  geom_line(aes(x = dateTime, y = Flow_Inst), color = "#56B4E9") +
+  xlab("") +
+  ylab(parameterInfo$variableDescription) +
+  ggtitle(siteInfo$station_nm, "WY 2020") +
+  theme_bw()
+
+p1 + p2 + plot_layout(ncol = 1)
+
+p_combined <- p1 +
+  geom_point(data = american_2020, aes(dateTime, Flow_Inst), color = "red", alpha = 0.5) +
+  theme_bw()
+
+p_combined
+
+# Toppenish Creek - USGS gauge: 12506000
+
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -93,25 +93,25 @@ sfa_coords_filter <- sfa_coords %>%
   filter(Site_ID %in% c("S49R", "S50P", "S55", "S65"))
 
 # Pull HUCs by site_id
-pull_huc10 <- function(i){
+pull_huc12 <- function(i){
   
   x <- sfa_coords %>% slice(i)
   
   get_huc(AOI = x, 
-          type = "huc10") %>% 
+          type = "huc12") %>% 
     mutate(Site_ID = x$Site_ID) %>% 
-    dplyr::select(huc10, 
+    dplyr::select(huc12, 
            Site_ID)
 }
 
 ## Pull HUC10s for all sites
 hucs_by_site <- 1:nrow(sfa_coords) %>% 
-  future_map(pull_huc10) %>% 
+  future_map(pull_huc12) %>% 
   bind_rows()
 
 ## From 328 sites to 184 unique HUC8s
 unique_hucs <- hucs_by_site %>% 
-  distinct(huc10, .keep_all = TRUE)
+  distinct(huc12, .keep_all = TRUE)
 
 # Peter code
 # Find HUCs that intersect with fire 
@@ -195,8 +195,82 @@ ggplot() +
 ```
 
 
+###### PULL HUC shape file for Oak Creek ######
+```{r Jake/Mac}
+#for Jake/mac
+
+rm(list=ls(all=T)) #this clears your Environment
+
+# Load the packages
+library(ggplot2)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(dplyr)
+library(here)
+library(nhdplusTools)
+library(furrr)
+
+```
+
+```{r Plot Yakima River Basin with Retreat Fire}
+# Load your local shapefile (replace with your file path)
+retreat_shape <- st_read(here("Fires_2024", "Retreat_Fire", "Retreat_Fire.shp"))
+
+ggplot(data = retreat_shape) +
+  geom_sf(fill = "transparent", color = "red") # Overlay the shapefile
 
 
+# Reading in data package data of coordinates of all of our sites
+oak_creek_coords <- read_csv(here("Fires_2024", "Retreat_Fire", "site_selection", "initial_search",
+                                  "oak_creek_precip_gage_comp.csv"))
+
+# Converting to a sf object
+oak_creek_coords <- oak_creek_coords %>%
+  st_as_sf(coords = c("longitude", "latitude"), crs = 4326)
+  # dplyr::select(Site_ID, COMID, geometry) %>% 
+  # dplyr::mutate(usgs_id = NA) %>% 
+  # filter(COMID != -9999)
+
+# Pull HUCs by site_id
+pull_huc10 <- function(i){
+  
+  x <- oak_creek_coords %>% slice(i)
+  
+  get_huc(AOI = x, 
+          type = "huc10") %>% 
+    mutate(site = x$site) %>% 
+    dplyr::select(huc10, 
+           site)
+}
+
+## Pull HUC12s for all sites
+hucs_by_site <- 1:nrow(oak_creek_coords) %>% 
+  future_map(pull_huc10) %>% 
+  bind_rows()
+
+
+unique_hucs <- hucs_by_site %>% 
+  distinct(huc10, .keep_all = TRUE)
+
+
+# Plot the flowlines using ggplot2
+ggplot() +
+  geom_sf(data = unique_hucs, fill = "lightblue", alpha = 0.25, color = "black") +
+  # geom_sf(data = flowlines, color = "blue", size = 1) +
+  geom_sf(data = retreat_shape, fill = "red", alpha = 0.5) +
+  theme_bw() +
+  labs(title = "Flowlines with HUCs that intersect the Retreat Fire",
+       x = "Longitude",
+       y = "Latitude")
+
+oak_creek_shape <- unique_hucs %>% 
+  filter(site == "Oak_Creek")
+  
+# Export to a shapefile
+st_write(oak_creek_shape, "~/GitHub/rc_sfa-fire-watch/Fires_2024/Retreat_Fire/site_selection/initial_search/oak_creek_shapefile.shp", driver = "ESRI Shapefile")
+
+```
 
 
 
