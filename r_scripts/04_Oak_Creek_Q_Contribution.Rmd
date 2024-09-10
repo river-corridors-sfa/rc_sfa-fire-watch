@@ -90,9 +90,9 @@ ggplot(data = Q_difference_nwm, aes(x = DateTime, y = Oak_Creek_Q_ms)) +
   theme_bw()
 
 # plot time series of discharge
-ggplot(data = Q_difference_nwm, aes(x = DateTime, y = Oak_Creek_Q_Ls)) +
+ggplot(data = Q_difference_nwm, aes(x = DateTime, y = Oak_Creek_Q_ms)) +
   geom_point() +
-  ylim(-100, 200) +
+  ylim(-0.5, 0.5) +
   xlab("") +
   ylab("Q (m/s)") +
   ggtitle("Interpolated Oak Creek NWM output - 2023 - Hourly") +

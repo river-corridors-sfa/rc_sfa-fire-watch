@@ -223,6 +223,9 @@ site_type = "xy" # OR site_type = "comid"
 
 sites <- read_csv(here("Fires_2024", "Retreat_Fire", "site_selection", "initial_search", "oak_creek_precip_gage_comp.csv"), na = c('-9999', 'N/A'))
 
+sites <- sites %>% 
+  mutate(comid = NA)
+
 ```
 
 Additional steps for sites with coordinates, and no COMID:
