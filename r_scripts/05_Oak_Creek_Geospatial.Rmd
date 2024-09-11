@@ -98,6 +98,8 @@ if(site_type == "xy"){
 }
 
 
+write_csv(sites, here("output_for_analysis", "05_Oak_Creek_Geospatial", "Oak_Creek_Geospatial.csv"))
+
 ```
 
 Make NHD-based watershed shapefiles for all CONUS sites. To make this step MUCH faster, it is best to have a locally downloaded version on the National NHD catchment shapefile stored on your local system. I have already included this shapefile in the `data` folder. 
@@ -119,4 +121,145 @@ Interactive map showing all sites and their delineated watersheds:
 mapview(site_watersheds, col.regions = "#56B4E9", alpha.regions = 0.2, lwd = 3, layer.name = "Watershed") +
   mapview(sites, cex = 5, col.regions = "black", layer.name = "Points") + 
   mapview(st_read('~/GitHub/rc_sfa-fire-watch/r_scripts/data/site_flowlines.gpkg', quiet = T), lwd = 3, color = "red", layer.name = "Flowline")
+```
+
+
+
+
+#################################################################################################
+
+### Oak Creek geospatial investigation 
+I want to investigate a gauged system in the watershed that is NOT influenced by a dam to see if I can correlation precip with a response in Q and use that as a threshold for Oak Creek.
+
+Step 1: Extract Oak Creek geospatial data by using the Katie Willi code with other sites that may be used to compare. 
+
+```{r setup, include=TRUE, echo = T, warning = F, comment = F, message = FALSE}
+rm(list = ls())
+library(sf)
+library(tidyverse)
+library(terra)
+library(nhdplusTools)
+library(mapview)
+library(dataRetrieval)
+library(lubridate)
+library(prism)
+library(ggspatial)
+library(nngeo)# Added from original code
+library(stars)# Added from original code
+library(here)
+library(webshot)
+
+# this gives you an error, but it can be ignored:
+try(plyr::ldply(list.files(path = here("r_scripts", "data", "src"),
+                           pattern="*.R",
+                           full.names=TRUE),
+                source))
+# Rmarkdown options
+knitr::opts_chunk$set(echo = T, warning = F, comment = F, message = F)
+
+# mapview options
+mapviewOptions(basemaps.color.shuffle=FALSE,basemaps='OpenTopoMap')
+
+```
+
+```{r read in exploratory sites that may be used to compare to how Oak Creek would respond}
+sf_use_s2(FALSE)
+
+site_type = "xy" # OR site_type = "comid"
+
+sites <- read_csv(here("Fires_2024", "Retreat_Fire", "site_selection", "initial_search", "oak_creek_precip_gage_comp.csv"), na = c('-9999', 'N/A'))
+
+sites <- sites %>% 
+  mutate(comid = NA)
+
+```
+
+Additional steps for sites with coordinates, and no COMID:
+
+```{r}
+if(site_type == "xy"){
+  sites <- sites %>%
+    dplyr::select(site, latitude, longitude) %>% 
+    sf::st_as_sf(coords = c("longitude","latitude"), crs = 4269) # 4269 = NAD83 CRS
+  
+  if(sf::st_crs(sites) != sf::st_crs(4269)){
+    sites <- sites %>% st_transform(., crs = 4269)
+  }
+  
+  mapview(sites)
+}
+
+```
+
+Pull all meta data associated with each site's COMID. 
+
+```{r}
+setwd(here("r_scripts"))
+
+if(site_type == "xy"){
+  sites <- getNHDxy(df = sites)
+}
+
+site_watersheds <- getWatersheds(df = sites, make_pretty = TRUE) %>%
+  inner_join(., dplyr::select(sf::st_drop_geometry(sites), site, comid), by = "comid")
+
+```
+
+
+Interactive map showing all sites and their delineated watersheds:
+
+```{r}
+mapview(site_watersheds, col.regions = "#56B4E9", alpha.regions = 0.2, lwd = 3, layer.name = "Watershed") +
+  mapview(sites, cex = 5, col.regions = "black", layer.name = "Points") + 
+  mapview(st_read('~/GitHub/rc_sfa-fire-watch/r_scripts/data/site_flowlines.gpkg', quiet = T), lwd = 3, color = "red", layer.name = "Flowline")
+```
+
+```{r}
+map2(sites$site, sites$comid, getMaps) 
+```
+
+### Extract more geospatial data about these watersheds ###
+```{r}
+# Extract National Hydrological Data
+sites <- getNHDcomid(df = sites)
+
+
+# # Extract the mean aridity index within each site's watershed as well as each site's location
+# sites <- getAridity(df = sites, sf = site_watersheds)
+# 
+# # Extract Omernik ecoregion for each site's location
+# sites <- getOmernikSite(df = sites)
+# 
+# # Extract dominant Omernik ecoregion within each site's watershed
+# sites <- getOmernikWs(df = sites, sf = site_watersheds)
+# 
+# # Extract PRSIM ppt, tmean, tmax, and tmin data for each site's location
+# sites_prism <- getPRISM(df = sites)
+# 
+# # Extract mean chemistry values within each site's watershed as well as each site's locationa
+# sites <- getChemistry(df = sites, sf = site_watersheds)
+```
+
+
+```{r summary stats of each exploratory watershed}
+# Stream order
+ggplot(data = sites, aes(x = site, y = streamorde, fill = site == "Oak_Creek")) +
+  geom_col() +
+  scale_fill_manual(values = c("TRUE" = "#56B4E9", "FALSE" = "gray")) +
+  theme_bw() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = -10))
+  
+
+# Watershed size
+sites <- sites %>% 
+  mutate(totdasqkm = as.numeric(totdasqkm))
+
+ggplot(data = sites, aes(x = site, y = totdasqkm, fill = site == "Oak_Creek")) +
+  geom_col() +
+  scale_fill_manual(values = c("TRUE" = "#56B4E9", "FALSE" = "gray")) +
+  theme_bw() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = -10))
+
 ```
