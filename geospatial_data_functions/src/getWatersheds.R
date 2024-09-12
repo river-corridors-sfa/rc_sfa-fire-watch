@@ -1,7 +1,7 @@
 getWatersheds <- function(df = sites, massive = TRUE, make_pretty = TRUE){
   
   # Read in the NHD. This is a table representing all flow direction data across CONUS.
-  nhd <- read_csv('~/GitHub/rc_sfa-rc-3-wenas-meta/R_scripts/data/nhd_flow_network.csv')
+  nhd <- read_csv('~/GitHub/rc_sfa-fire-watch/geospatial_data_functions/src/nhd_flow_network.csv')
   
   subset_sites <- df %>% #remove comid duplicates (i.e., samples located in the same catchment)
     distinct(comid,.keep_all=T)

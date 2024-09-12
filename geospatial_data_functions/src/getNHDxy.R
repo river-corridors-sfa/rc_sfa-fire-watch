@@ -23,14 +23,14 @@ site_hucs <- do.call('rbind',site_hucs) %>%
 
 #Select NHD flowlines that df are located on, subsequently getting NHD metadata for each sample location.
 subset_nhdplus(comids = df$comid,
-               output_file = 'data/site_flowlines.gpkg',
+               output_file = '~/GitHub/rc_sfa-fire-watch/geospatial_data_functions/src/site_flowlines.gpkg',
                nhdplus_data = 'download',
                overwrite = TRUE,
                return_data = FALSE,
                flowline_only = TRUE,
                out_prj = 4269)
 
-site_lines <- st_read('data/site_flowlines.gpkg', quiet = T) %>%
+site_lines <- st_read('~/GitHub/rc_sfa-fire-watch/geospatial_data_functions/src/site_flowlines.gpkg', quiet = T) %>%
   #if necessary, remove duplicates that happen due to multiple samples on the same NHD feature:
   distinct(comid,.keep_all=TRUE) %>% 
   st_join(.,site_hucs) %>%

@@ -36,9 +36,9 @@ library(nngeo)# Added from original code
 library(stars)# Added from original code
 library(here)
 library(webshot)
-
+here()
 # this gives you an error, but it can be ignored:
-try(plyr::ldply(list.files(path = here("R_scripts", "data", "src"),
+try(plyr::ldply(list.files(path = here("geospatial_data_functions", "src"),
                            pattern="*.R",
                            full.names=TRUE),
                 source))
@@ -78,18 +78,10 @@ sf_use_s2(FALSE)
 
 site_type = "xy" # OR site_type = "comid"
 
-sites <- read_csv(here("Fires_2024", "Retreat_Fire", "site_selection", "Site_List_8_19_2024.csv"), na = c('-9999', 'N/A')) %>%
+sites <- read_csv(here("Retreat_Fire_2024", "site_selection", "Site_List_8_19_2024.csv"), na = c('-9999', 'N/A')) %>%
   distinct(site, .keep_all = TRUE) %>%
   dplyr::select('site','latitude','longitude') %>% 
   drop_na()
-
-sites <- read_csv(here("Fires_2024", "Retreat_Fire", "site_selection", "initial_search", "initial_investigation_08_19_2024.csv"), na = c('-9999', 'N/A')) %>%
-  distinct(Site, .keep_all = TRUE) %>%
-  rename(site = Site) %>% 
-  dplyr::select('site','latitude','longitude') %>% 
-  drop_na()
-
-
 
 ```
 
@@ -112,9 +104,13 @@ if(site_type == "xy"){
 Pull all meta data associated with each site's COMID. 
 
 ```{r}
-sites <- sites %>% 
-  filter(site != 12) # For some reason site # 12 does not get its COMID pulled so I am removing it. 
 
+sites <- sites %>% 
+  filter(site == 'North Fork Cowiche Creek') # For some reason site # 12 does not get its COMID pulled so I am removing it. 
+
+# North Fork Cowiche Creek COMID - 24423497
+
+North Fork Cowiche Creek
 if(site_type == "xy"){
   sites <- getNHDxy(df = sites)
 }
@@ -140,7 +136,7 @@ Interactive map showing all sites and their delineated watersheds:
 ```{r}
 mapview(site_watersheds, col.regions = "#56B4E9", alpha.regions = 0.2, lwd = 3, layer.name = "Watershed") +
   mapview(sites, cex = 5, col.regions = "black", layer.name = "Points") + 
-  mapview(st_read('~/GitHub/rc_sfa-fire-watch/r_scripts/data/site_flowlines.gpkg', quiet = T), lwd = 3, color = "red", layer.name = "Flowline")
+  mapview(st_read('~/GitHub/rc_sfa-fire-watch/geospatial_data_functions/src/site_flowlines.gpkg', quiet = T), lwd = 3, color = "red", layer.name = "Flowline")
 ```
 
 ```{r noncat,echo = T, warning = FALSE, comment = F, message = FALSE, results='hide'}
