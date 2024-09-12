@@ -1,0 +1,204 @@
+---
+title: "Exploratory_Precip_Tracking"
+output: html_document
+date: "2024-09-12"
+editor_options: 
+  chunk_output_type: console
+---
+
+The purpose of this script is to track rain gauges and Q measurements.
+
+# Status: in progress
+
+# ==============================================================================
+# Author: Jake Cavaiani; jake.cavaiani@pnnl.gov 
+# 12 September 2024
+# ==============================================================================
+
+## Load packages and set working directory
+```{r Jake/Mac}
+#for Jake/mac
+
+rm(list=ls(all=T)) #this clears your Environment
+
+# Load the packages
+library(ggplot2)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(dplyr)
+library(here)
+library(nhdplusTools)
+library(furrr)
+library(readr)
+library(dataRetrieval)
+library(lubridate)
+library(cowplot)
+```
+
+# Extract hydrologic data
+```{r American River}
+# Doing this on September 12th
+# American River Near Nile, WA - 12488500
+siteNo <- "12488500"
+pCode <- "00060"
+start.date <- "2024-08-01"
+end.date <- "2024-09-11"
+
+american <- readNWISuv(siteNumbers = siteNo,
+                     parameterCd = pCode,
+                     startDate = start.date,
+                     endDate = end.date)
+
+# Fix the names 
+american <- renameNWISColumns(american)
+
+parameterInfo <- attr(american, "variableInfo")
+siteInfo <- attr(american, "siteInfo")
+
+# plot 
+ggplot(data = american, aes(x = dateTime, y = Flow_Inst)) +
+  geom_point() +
+  xlab("") +
+  ylab(parameterInfo$variableDescription) +
+  ggtitle(siteInfo$station_nm) +
+  theme_bw()
+
+
+# Load in TICW Precip
+precip <- read_csv(here("Retreat_Fire_2024", "inputs", "Climate", "TICW_active_precip.csv"))
+
+precip <- precip %>% 
+  mutate(DateTime = mdy(DateTime)) %>% 
+  na.omit(ticw_pp) %>% 
+  filter(ticw_pp >= 0 & ticw_pp <= 10)
+
+precip$DateTime <- as.POSIXct(precip$DateTime, tz = "UTC")
+head(precip$DateTime) # PDT
+```
+
+```{patchwork}
+
+# Patchwork
+# Install patchwork if necessary
+# install.packages("patchwork")
+
+library(ggplot2)
+library(patchwork)
+
+# # Ensure DateTime and dateTime are POSIXct
+# precip$DateTime <- as.POSIXct(precip$DateTime, tz = "America/Los_Angeles")
+# american$dateTime <- as.POSIXct(american$dateTime, tz = "America/Los_Angeles")
+# head(precip$DateTime) # PDT
+# head(american$dateTime) # UTC
+
+american$dateTime <- with_tz(american$dateTime, tz = "America/Los_Angeles")
+head(american$dateTime)
+
+american <- american %>% 
+  mutate(dateTime = dateTime + 14 * 3600)
+head(american$dateTime)
+
+# precip <- precip %>% 
+#   mutate(DateTime = DateTime + 14 * 3600)
+# 
+# # Precipitation plot
+# precip_plot <- ggplot(precip, aes(x = DateTime, y = ticw_pp)) +
+#   geom_bar(stat = "identity", fill = "deepskyblue") +
+#   scale_x_datetime(date_labels = "%b %d", date_breaks = "1 week") +  # Customize date format and breaks as needed
+#   labs(x = "Date", y = "Precipitation (inches)") +
+#   theme_minimal()
+
+# Discharge plot
+discharge_plot <- ggplot(american, aes(x = dateTime, y = Flow_Inst)) +
+  geom_line(color = "black", size = 1.2) +
+  scale_x_datetime(date_labels = "%b %d", date_breaks = "1 week") +  # Same date format as above
+  labs(x = "Date", y = "Discharge (cfs)") +
+  theme_minimal()
+
+discharge_plot
+# # Stack the plots vertically
+# combined_plot <- precip_plot / discharge_plot
+# 
+# # Display the combined plot
+# combined_plot
+
+
+# Plot time series
+precip_plot_1.0 <- ggplot(precip, aes(x = DateTime, y = ticw_pp)) +
+  geom_bar(stat = "identity", fill = "deepskyblue") + 
+  scale_y_reverse(position = "right",
+                  limits = c(0.5, 0),
+                  breaks = c(0, 0.1, 0.2, 0.3, 0.4, 0.5)) +
+  labs(x = "", y = "Precipitation (In)", title = "Daily Precipitation Time Series") +
+  theme_classic() +
+  theme(axis.title.y.right = element_text(hjust = 0),
+        legend.position = "bottom",
+        axis.text.x = element_blank(),
+        axis.ticks = element_blank(),
+        legend.justification = c(0.75, 0.5),
+        legend.title = element_blank())
+
+precip_plot_1.0
+
+```
+
+```{use cowplot}
+aligned_plots <- align_plots(precip_plot_1.0, discharge_plot, align = "hv", axis = "tblr")
+out <- ggdraw(aligned_plots[[1]]) + draw_plot(aligned_plots[[2]])
+out
+```
+
+
+```{base R}
+
+# Base R
+plot(american$Flow_Inst ~ american$dateTime, type="p", xlab="", ylab="Q (cfs)",
+     xlim = as.POSIXct(c("2024-08-01 00:00:00","2024-09-15 23:45:00"), tz="UTC"),
+     ylim = c(40, 80))
+par(new = T)
+
+plot(precip$ticw_pp ~ precip$DateTime, type="h",
+     xlim = as.POSIXct(c("2024-08-01 00:00:00","2024-09-15 23:45:00"), tz="UTC"),
+     ylim = c(0.5,0), 
+     axes=F, xlab="", ylab="")
+axis(side = 4)
+mtext(side = 4, line = 3, 'CRREL Met Station precip. (mm)') 
+```
+
+
+
+
+
+```{Katie sent me this link}
+precip <- precip %>% 
+  mutate(dateTime = DateTime)
+
+joined_data <- american |> 
+  left_join(precip |>  select(dateTime, ticw_pp), 
+            by = c("dateTime" = "dateTime"))
+
+p1 <- ggplot(joined_data) +
+  geom_line(aes(x = dateTime, Flow_Inst, color = "Discharge")) +
+  scale_y_continuous(position = "left",
+                     limits = c(0, 75),
+                     expand = c(0,0)) +
+  scale_color_manual(values = c("steelblue")) +
+  labs(y = "Discharge [cfs]",
+       x = "Date") +
+  theme_classic() +
+  theme(axis.title.y.left = element_text(hjust = 0),
+        legend.position = "bottom",
+        legend.justification = c(0.25, 0.5),
+        legend.title = element_blank())
+
+p1
+
+
+```
+
+
+
+
+
+

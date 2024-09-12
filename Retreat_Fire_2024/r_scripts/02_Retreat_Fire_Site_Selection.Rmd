@@ -106,7 +106,10 @@ Pull all meta data associated with each site's COMID.
 ```{r}
 
 sites <- sites %>% 
-  filter(site == 'North Fork Cowiche Creek') # For some reason site # 12 does not get its COMID pulled so I am removing it. 
+  filter(site %in% c('Clint Canyon', 'Pine Tree Canyon',
+                     'Hoover Canyon', 'Indian Creek',
+                     'North Fork Oak Creek', 'Counterfeit Creek',
+                     'South Fork Oak Creek')) # For some reason site # 12 does not get its COMID pulled so I am removing it. 
 
 # North Fork Cowiche Creek COMID - 24423497
 if(site_type == "xy"){
@@ -121,6 +124,12 @@ Make NHD-based watershed shapefiles for all CONUS sites. To make this step MUCH 
 ```{r}
 site_watersheds <- getWatersheds(df = sites, make_pretty = TRUE) %>%
   inner_join(., dplyr::select(sf::st_drop_geometry(sites), site, comid), by = "comid")
+
+# Write the sf object to a shapefile
+st_write(site_watersheds, here("Retreat_Fire_2024", "output_for_analysis", "02_Retreat_Fire_Site_Selection", "Oak_Creek_tribs.shp"))
+
+# Export geospatial data
+write_csv(sites, here("Retreat_Fire_2024", "output_for_analysis", "02_Retreat_Fire_Site_Selection", "Oak_Creek_tribs_geospatial.csv"))
 ```
 
 Ensure that each site is accurately represented by the NHD (some locations may be located on streams that are too small to be captured by the NHD, others may have coordinates that are slightly off, potentially placing them in the wrong catchment). Here, we create simple maps of each watershed, to determine if the delineated watershed/NHD attributes are appropriate. This can take a while depending on how many sites you are doing this for. Maps are automatically stored in the `data/maps/` folder. It is highly recommended to review each map, particularly for known locations along BIG rivers and TINY streams.
