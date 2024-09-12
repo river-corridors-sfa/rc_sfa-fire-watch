@@ -109,8 +109,6 @@ sites <- sites %>%
   filter(site == 'North Fork Cowiche Creek') # For some reason site # 12 does not get its COMID pulled so I am removing it. 
 
 # North Fork Cowiche Creek COMID - 24423497
-
-North Fork Cowiche Creek
 if(site_type == "xy"){
   sites <- getNHDxy(df = sites)
 }
@@ -173,23 +171,22 @@ output_file <- sites %>%
 If after reviewing the delineated watersheds you have found that some site coordinates place that location in the wrong catchment, we will need to explore that site's nearby catchments to link it to the correct COMID:
 
 ```{r}
-# size <- sites %>% 
-#   select(site, comid, totdasqkm)
-# 
-# sus_points <- sites 
-#   # Comment the line below if you want to remove some sites:
-#   # %>%
-#   #filter(site %in% c("site_name","sine_name2"))
-# 
-# sus_nhd <- sus_points %>%
-#   sf::st_buffer(., dist = 0.01) %>%
-#   sus_mapper(.)
-# 
-# 
-# mapview(sus_nhd[[2]], col.regions = "#56B4E9", alpha.regions = 0.4, legend = FALSE) +
-#  # mapview(sbux_sf, cex = 5, col.regions = "red", legend = FALSE) +
-#   mapview(sus_points, cex = 5, col.regions = "black", legend = FALSE) +
-#   mapview(sus_nhd[[1]], lwd = 1.5, color = "red", legend = FALSE)
+sus_points <- sites
+  # Comment the line below if you want to remove some sites:
+  # %>%
+  #filter(site %in% c("site_name","sine_name2"))
+
+sus_nhd <- sus_points %>%
+  sf::st_buffer(., dist = 0.01) %>%
+  sus_mapper(.)
+
+
+mapview(sus_nhd[[2]], col.regions = "#56B4E9", alpha.regions = 0.4, legend = FALSE) +
+ # mapview(sbux_sf, cex = 5, col.regions = "red", legend = FALSE) +
+  mapview(sus_points, cex = 5, col.regions = "black", legend = FALSE) +
+  mapview(sus_nhd[[1]], lwd = 1.5, color = "red", legend = FALSE)
+
+# Adjacent COMID: 24423499
 
 ```
 
