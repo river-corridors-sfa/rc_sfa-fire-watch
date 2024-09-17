@@ -457,8 +457,8 @@ for (site_name in site_names) {
   basin_dnbr <- clean_raster(dnbr, site_shape, type = "numeric", return = "raster")
   
   # Plot to verify clipping
-  png(filename = paste0(output_directory, site_name, "_clipping_plot.pdf"))
-  plot(basin_dnbr)
+  png(filename = paste0(output_directory, site_name, "_clipping_plot.png"))
+  plot(basin_dnbr, main = paste("dNBR for Site:", site_name))
   dev.off()
   
   # Check and transform CRS if necessary

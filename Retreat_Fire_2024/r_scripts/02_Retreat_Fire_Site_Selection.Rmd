@@ -109,7 +109,8 @@ sites <- sites %>%
   filter(site %in% c('Clint Canyon', 'Pine Tree Canyon',
                      'Hoover Canyon', 'Indian Creek',
                      'North Fork Oak Creek', 'Counterfeit Creek',
-                     'South Fork Oak Creek')) 
+                     'South Fork Oak Creek', 'unnamed_1',
+                     'unnamed_2')) 
                      #'Cabin Creek', 'Sentinel Creek')) 
 
 # North Fork Cowiche Creek COMID - 24423497
