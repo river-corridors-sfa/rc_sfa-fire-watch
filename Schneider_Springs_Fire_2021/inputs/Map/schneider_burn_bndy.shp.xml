@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<metadata xml:lang="en"><Esri><CreaDate>20230607</CreaDate><CreaTime>08472800</CreaTime><ArcGISFormat>1.0</ArcGISFormat><SyncOnce>TRUE</SyncOnce><DataProperties><lineage><Process ToolSource="c:\program files (x86)\arcgis\desktop10.8\ArcToolbox\Toolboxes\Conversion Tools.tbx\RasterToPolygon" Date="20230607" Time="084554">RasterToPolygon schneider_sp C:\Users\nels863\Documents\ArcGIS\Default.gdb\RasterT_schneid2 SIMPLIFY Value MULTIPLE_OUTER_PART #</Process></lineage></DataProperties></Esri></metadata>

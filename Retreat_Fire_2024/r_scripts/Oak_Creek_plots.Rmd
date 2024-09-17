@@ -1,0 +1,181 @@
+---
+title: "Oak_Creek_plots"
+output: html_document
+date: "2024-09-17"
+editor_options: 
+  chunk_output_type: console
+---
+
+The purpose of this script is to plot Oak Creek related figures 
+
+Script Workflow:
+
+Step 1)
+
+Step 2) 
+
+Step 3) 
+
+
+# Status: in progress
+
+# ==============================================================================
+# Author: Jake Cavaiani; jake.cavaiani@pnnl.gov 
+# 17 September 2024
+# ==============================================================================
+
+## Load packages and set working directory
+```{r Jake/Mac}
+#for Jake/mac
+
+rm(list=ls(all=T)) #this clears your Environment
+
+# Load the packages
+library(ggplot2)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(dplyr)
+library(here)
+library(nhdplusTools)
+library(furrr)
+library(readr)
+library(raster)
+library(exactextractr)
+library(purrr)
+library(stringr)
+library(forcats)
+library(lwgeom)
+```
+
+# Convert crs function 
+```{r crs function}
+convert_crs <- function (input, goal, type = "numeric", res = NULL) 
+{
+    stopifnot(class(input)[1] %in% c("sf", "RasterLayer"), class(goal)[1] %in% 
+        c("sf", "RasterLayer"), type %in% c("numeric", "categorical"))
+    if (raster::compareCRS(goal, input) == T) {
+        message("CRS already matches that of your goal object")
+        return(input)
+    }
+    else {
+        if (class(input)[1] == "RasterLayer") {
+            if (is.null(res)) {
+                if (class(goal)[1] == "RasterLayer") {
+                  res <- terra::res(goal)[1]
+                }
+                else {
+                  unit <- sf::st_crs(goal, parameters = TRUE)$units_gdal
+                  res <- ifelse(unit == "degree", 0.0003280119, 
+                    30)
+                }
+            }
+            method <- ifelse(type == "numeric", "bilinear", "ngb")
+            input_prj <- raster::projectRaster(input, crs = raster::crs(goal), 
+                method = method, res = res)
+        }
+        else {
+            input_prj <- sf::st_transform(input, raster::crs(goal))
+        }
+        return(input_prj)
+    }
+}
+
+```
+
+# Function to clip raster to a shapefile 
+```{r function}
+# This function will ensure the projection is the same between the raster the shapefile and then clip the raster to the basin boundry. It can return a raster (for further analysis) or a dataframe (for plotting)
+
+#' @param raster the raster you want to clip
+#' @param sf the shapefile you want to use to clip the raster
+#' @param type either 'numeric' or 'categorical' depending on if your raster is discrete or continuous values
+#' @param res the resolution of the projected raster, if not specified with default to 30m
+#' @param return either 'df' or 'raster' to specify the form of the returned raster
+#'
+#' @return if 'return' is df it will return the raster as a dataframe suitable 
+#' for plotting in ggplot2. If 'return' is raster it will return the raster as a rasterLayer object
+
+clean_raster <- function (raster, sf, type = "numeric", 
+                            res = NULL, return = "df") {stopifnot(class(raster) == "RasterLayer", class(sf)[1] == 
+                c("sf"), type %in% c("numeric", "categorical"), return %in% 
+                c("df", "raster"))
+    unit <- sf::st_crs(sf, parameters = TRUE)$units_gdal
+    buffer <- ifelse(unit == "degree", 0.1, 5000)
+    res <- ifelse(unit == "degree", 0.0003280119, 30)
+    method <- ifelse(type == "numeric", "bilinear", "ngb")
+    if (compareCRS(raster, sf) == T) {
+      raster_crop <- raster::crop(raster, sf)
+      raster_crop <- raster::mask(raster_crop, sf)
+      raster_df <- as.data.frame(raster::rasterToPoints(raster_crop))
+      colnames(raster_df) <- c("x", "y", "val")
+    }
+    else {
+      sf_prj <- convert_crs(sf::st_buffer(sf, dist = buffer), 
+                            raster)
+      raster_crop <- raster::crop(raster, sf_prj)
+      raster_crop <- raster::mask(raster_crop, sf_prj)
+      raster_prj <- raster::projectRaster(raster_crop, crs = crs(sf), 
+                                          method = method, res = res)
+      raster_crop <- raster::crop(raster_prj, sf)
+      raster_crop <- raster::mask(raster_crop, sf)
+      raster_df <- as.data.frame(raster::rasterToPoints(raster_crop))
+      colnames(raster_df) <- c("x", "y", "val")
+    }
+    if (return == "df") {
+      raster_df
+    }
+    else {
+      raster_crop
+    }
+} 
+
+```
+
+```{r}
+# Read in watershed shape file
+oak_creek_tribs_shape <- st_read(here("Retreat_Fire_2024", "output_for_analysis", "02_Retreat_Fire_Site_Selection", "Oak_Creek_tribs.shp")) 
+
+# Read in pole creek fire 
+retreat_shape <- read_sf(here("Retreat_Fire_2024", "inputs", "shape_files", "Retreat_Fire.shp"))
+
+retreat_shape <- st_zm(retreat_shape)
+
+# Plot fire shape file 
+ggplot(data = retreat_shape) +
+  geom_sf(aes(fill = "red")) +
+  theme_minimal()
+
+# plot on top of each other 
+ggplot() +
+  geom_sf(data = oak_creek_tribs_shape, fill = "#56B4E9", alpha = 0.2, color = "black") +
+  geom_sf(data = retreat_shape, fill = "red", alpha = 0.2, color = "black") +
+  theme_minimal()
+
+# Pull the dnbrs for the Retreat Fire
+retreat_dnbr <- raster(here("Retreat_Fire_2024", "inputs", "shape_files", "dNBR_RetreatFire.tif"))
+
+# # Clip data to the watershed
+dnbr <- clean_raster(retreat_dnbr, retreat_shape, type = "numeric", return="raster")
+plot(dnbr) #use to make sure it's doing what you expect
+par(new = T)
+plot(oak_creek_tribs_shape, add = TRUE, col = rgb(86/255, 180/255, 233/255, 0.2), border = "black")
+
+# Convert the raster to a data frame for ggplot2
+dnbr_df <- as.data.frame(dnbr, xy = TRUE)
+colnames(dnbr_df) <- c("x", "y", "dNBR")
+
+# Plot using ggplot2
+ggplot() +
+  geom_raster(data = dnbr_df, aes(x = x, y = y, fill = dNBR)) +
+  geom_sf(data = oak_creek_tribs_shape, fill = "white", alpha = 0.01, color = "black") +
+  scale_fill_gradient(low = "green", high = "red") +
+  theme_minimal() +
+  labs(title = "dNBR Plot with Oak Creek Tribs",
+       x = "Longitude",
+       y = "Latitude",
+       fill = "dNBR Value") +
+  coord_sf()
+
+
+```

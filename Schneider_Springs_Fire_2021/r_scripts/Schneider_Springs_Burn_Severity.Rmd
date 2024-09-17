@@ -1,0 +1,582 @@
+---
+title: "Schneider_Springs_Burn_Severity"
+output: html_document
+date: "2024-09-16"
+editor_options: 
+  chunk_output_type: console
+---
+
+The purpose of this script is to compare the burn severity dNBR values between Etienne's Landsat/Sentinel workflow and MTBS
+
+Script Workflow:
+
+Step 1)
+
+Step 2) 
+
+Step 3) 
+
+
+# Status: in progress
+
+# ==============================================================================
+# Author: Jake Cavaiani; jake.cavaiani@pnnl.gov 
+# 16 September 2024
+# ==============================================================================
+
+
+## Load packages and set working directory
+```{r Jake/Mac}
+#for Jake/mac
+
+rm(list=ls(all=T)) #this clears your Environment
+
+# Load the packages
+library(ggplot2)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(dplyr)
+library(here)
+library(nhdplusTools)
+library(furrr)
+library(readr)
+library(raster)
+library(exactextractr)
+library(purrr)
+library(stringr)
+library(forcats)
+library(lwgeom)
+```
+
+
+#### Burn Severity 
+# Convert crs function 
+```{r crs function}
+convert_crs <- function (input, goal, type = "numeric", res = NULL) 
+{
+    stopifnot(class(input)[1] %in% c("sf", "RasterLayer"), class(goal)[1] %in% 
+        c("sf", "RasterLayer"), type %in% c("numeric", "categorical"))
+    if (raster::compareCRS(goal, input) == T) {
+        message("CRS already matches that of your goal object")
+        return(input)
+    }
+    else {
+        if (class(input)[1] == "RasterLayer") {
+            if (is.null(res)) {
+                if (class(goal)[1] == "RasterLayer") {
+                  res <- terra::res(goal)[1]
+                }
+                else {
+                  unit <- sf::st_crs(goal, parameters = TRUE)$units_gdal
+                  res <- ifelse(unit == "degree", 0.0003280119, 
+                    30)
+                }
+            }
+            method <- ifelse(type == "numeric", "bilinear", "ngb")
+            input_prj <- raster::projectRaster(input, crs = raster::crs(goal), 
+                method = method, res = res)
+        }
+        else {
+            input_prj <- sf::st_transform(input, raster::crs(goal))
+        }
+        return(input_prj)
+    }
+}
+
+```
+
+# Function to clip raster to a shapefile 
+```{r function}
+# This function will ensure the projection is the same between the raster the shapefile and then clip the raster to the basin boundry. It can return a raster (for further analysis) or a dataframe (for plotting)
+
+#' @param raster the raster you want to clip
+#' @param sf the shapefile you want to use to clip the raster
+#' @param type either 'numeric' or 'categorical' depending on if your raster is discrete or continuous values
+#' @param res the resolution of the projected raster, if not specified with default to 30m
+#' @param return either 'df' or 'raster' to specify the form of the returned raster
+#'
+#' @return if 'return' is df it will return the raster as a dataframe suitable 
+#' for plotting in ggplot2. If 'return' is raster it will return the raster as a rasterLayer object
+
+clean_raster <- function (raster, sf, type = "numeric", 
+                            res = NULL, return = "df") {stopifnot(class(raster) == "RasterLayer", class(sf)[1] == 
+                c("sf"), type %in% c("numeric", "categorical"), return %in% 
+                c("df", "raster"))
+    unit <- sf::st_crs(sf, parameters = TRUE)$units_gdal
+    buffer <- ifelse(unit == "degree", 0.1, 5000)
+    res <- ifelse(unit == "degree", 0.0003280119, 30)
+    method <- ifelse(type == "numeric", "bilinear", "ngb")
+    if (compareCRS(raster, sf) == T) {
+      raster_crop <- raster::crop(raster, sf)
+      raster_crop <- raster::mask(raster_crop, sf)
+      raster_df <- as.data.frame(raster::rasterToPoints(raster_crop))
+      colnames(raster_df) <- c("x", "y", "val")
+    }
+    else {
+      sf_prj <- convert_crs(sf::st_buffer(sf, dist = buffer), 
+                            raster)
+      raster_crop <- raster::crop(raster, sf_prj)
+      raster_crop <- raster::mask(raster_crop, sf_prj)
+      raster_prj <- raster::projectRaster(raster_crop, crs = crs(sf), 
+                                          method = method, res = res)
+      raster_crop <- raster::crop(raster_prj, sf)
+      raster_crop <- raster::mask(raster_crop, sf)
+      raster_df <- as.data.frame(raster::rasterToPoints(raster_crop))
+      colnames(raster_df) <- c("x", "y", "val")
+    }
+    if (return == "df") {
+      raster_df
+    }
+    else {
+      raster_crop
+    }
+} 
+
+```
+
+# Burn Threshold for Schneider Springs Fire
+```{r}
+# # Define the list of directories for each fire
+# fire_directories <- list(
+#   here("gis_data", "Fire_Perimeters", "angora", "mtbs", "2007", "ca3888612004020070623"),
+#   here("gis_data", "Fire_Perimeters", "caldor", "mtbs", "2021", "ca3858612053820210815"),
+#   here("gis_data", "Fire_Perimeters", "clovermist", "mtbs", "1988", "wy4473710995419880709"),
+#   here("gis_data", "Fire_Perimeters", "fourmile_canyon", "mtbs", "2010", "co4005110538520100906"),
+#   here("gis_data", "Fire_Perimeters", "gaviota", "mtbs", "2004", "ca3448712019620040605"),
+#   here("gis_data", "Fire_Perimeters", "hayman", "mtbs", "2002", "co3922010528720020608"),
+#   here("gis_data", "Fire_Perimeters", "high_park", "mtbs", "2012", "co4058910540420120609"),
+#   here("gis_data", "Fire_Perimeters", "mosquito", "mtbs", "2022", "ca3900612074520220907"),
+#   here("gis_data", "Fire_Perimeters", "pole_creek", "mtbs", "2018", "ut3980611166020180906"),
+#   here("gis_data", "Fire_Perimeters", "rampage_complex_double_mountain_2", "mtbs", "2003", "mt4839411359020030819"),
+#   here("gis_data", "Fire_Perimeters", "red_bench", "mtbs", "1988", "mt4878711426219880906"),
+#   here("gis_data", "Fire_Perimeters", "wragg", "mtbs", "2015", "ca3851412213120150722"))
+# 
+# # Initialize a list to store the results
+# results <- list()
+# 
+# # Loop over each fire directory
+# for (dir in fire_directories) {
+#   # Extract fire name from directory path
+#   fire_name <- str_match(dir, "Fire_Perimeters/(.*?)/")[2]
+# 
+#   # Construct the file paths for the dnbr and dnbr6 rasters using here
+#   dnbr6_path <- here(dir, paste0(fire_name, "_dnbr6.tif"))
+#   dnbr_path <- here(dir, paste0(fire_name, "_dnbr.tif"))
+#   
+#   # Load the rasters
+#   dnbr6 <- raster(dnbr6_path)
+#   dnbr <- raster(dnbr_path)
+#   
+#   # Perform zonal statistics and convert to tibbles
+#   thresh_low <- as_tibble(zonal(dnbr, dnbr6, "min"), .name_repair = "minimal") %>% 
+#     rename(zone = 1, min = 2)
+#   thresh_high <- as_tibble(zonal(dnbr, dnbr6, "max"), .name_repair = "minimal") %>% 
+#     rename(zone = 1, max = 2)
+#   
+#   # Join the two tibbles by 'zone'
+#   thresh <- inner_join(thresh_low, thresh_high, by = "zone")
+#   
+#   # Add fire_name as a column
+#   thresh <- thresh %>% 
+#     mutate(fire_name = fire_name)
+#   
+#   # Store the results in the list
+#   results[[fire_name]] <- thresh
+# }
+# 
+# # Combine all results into a single data frame (optional)
+# combined_results <- bind_rows(results)
+# 
+# # These zones do not have an association with the Burn Severity 
+# combined_results_filter <- combined_results %>% 
+#   filter(!zone == "0") %>% 
+#   filter(!zone == "6")
+# 
+# # Mutate a column to assign burn severities to the thresholds
+# combined_results_filter <- combined_results_filter %>% 
+#   mutate(Burn_Severity = case_when(zone == "1" ~ "Unburned to Low",
+#                                    zone == "2" ~ "Low",
+#                                    zone == "3" ~ "Moderate",
+#                                    zone == "4" ~ "High",
+#                                    zone == "5" ~ "Increased Greeness"))
+# 
+# write.csv(combined_results_filter, here("Output_for_analysis", "13_Meta_calculate_thresholds_per_fire", "Fire_thresholds.csv"))
+
+```
+
+# MTBS dNBR for SSF visited sites
+```{r}
+# Read in watershed shape file
+SSF_willi_shape <- st_read(here("Schneider_Springs_Fire_2021", "output_for_analysis", "Schneider_Springs_Sites_Willi", "SSF_sites.shp")) 
+
+# Read in pole creek fire 
+schneider_shape <- read_sf(here("Schneider_Springs_Fire_2021", "inputs", "Map", "schneider_burn_bndy.shp"))
+
+schneider_shape <- st_zm(schneider_shape)
+
+# Plot fire shape file 
+ggplot(data = schneider_shape) +
+  geom_sf(aes(fill = "red")) +
+  theme_minimal()
+
+# plot on top of each other 
+ggplot() +
+  geom_sf(data = SSF_willi_shape, fill = "#56B4E9", alpha = 0.2, color = "black") +
+  geom_sf(data = schneider_shape, fill = "red", alpha = 0.2, color = "black") +
+  theme_minimal()
+
+# Pull the dnbrs for the Retreat Fire
+schneider_dnbr <- raster(here("Schneider_Springs_Fire_2021", "inputs", "shape_files", "wa4684012114620210804", "wa4684012114620210804_20210725_20220728_dnbr.tif"))
+
+# # Clip data to the watershed
+dnbr <- clean_raster(schneider_dnbr, schneider_shape, type = "numeric", return="raster")
+plot(dnbr) #use to make sure it's doing what you expect
+
+# MTBS_dnbr <- dnbr
+
+```
+
+# MTBS Watershed DNBR values
+```{r for loop}
+# Define the fire thresholds for burn severity
+Fire_thresholds <- tibble(
+  zone = c(1:5),
+  min = c(-100, 100, 270, 440, 660),
+  max = c(99, 269, 439, 659, 1300),
+  fire_name = "schneider_fire",
+  burn_severity = c("Unburned", "Low", "Moderate_Low", "Moderate_High", "High")
+)
+
+# Read the sites we visited for SSF sampling campaign file with multiple sites
+SSF_willi_shape <- st_read(here("Schneider_Springs_Fire_2021", "output_for_analysis", "Schneider_Springs_Sites_Willi", "SSF_sites.shp")) 
+
+# List of unique site names within Oak_Creek_tribs.shp
+site_names <- unique(SSF_willi_shape$site)
+
+# Initialize empty results dataframe
+MTBS_results <- tibble(method = character(),
+                       site = character(), 
+                       mean_dnbr = numeric(), 
+                       burn_severity = character())
+
+# Loop through each site within Oak_Creek_tribs.shp
+for (site_name in site_names) {
+  
+  # Filter the shapefile by site
+  site_shape <- SSF_willi_shape %>%
+    filter(site == site_name)
+
+
+  # Plot to verify filtering
+  ggplot() +
+    geom_sf(data = site_shape, fill = "#56B4E9", alpha = 0.2, color = "black") +
+    theme_minimal()
+  
+  # Clean and clip raster to the site boundary
+  basin_dnbr <- clean_raster(dnbr, site_shape, type = "numeric", return = "raster")
+  
+  # Plot to verify clipping
+  plot(basin_dnbr)
+  
+  # Check and transform CRS if necessary
+  if (compareCRS(dnbr, site_shape) == FALSE) {
+    site_shape <- st_transform(site_shape, crs(dnbr))
+  }
+  
+  # Extract mean dNBR for the site
+  mean_dnbr <- exactextractr::exact_extract(dnbr, site_shape, "mean", progress = FALSE)
+  
+  # Categorize the mean dNBR based on fire thresholds
+  burn_severity <- Fire_thresholds %>%
+    filter(min <= mean_dnbr & max >= mean_dnbr) %>%
+    dplyr::select(burn_severity) %>%
+    pull()
+  
+  # Append the results to the results dataframe
+  MTBS_results <- MTBS_results %>%
+    add_row(method = "MTBS",
+            site = site_name, 
+            mean_dnbr = mean_dnbr, 
+            burn_severity = burn_severity)
+}
+
+# View the final results
+MTBS_results
+```
+
+
+# Etienne L8 dNBR for SSF visited sites
+```{r}
+# Read in watershed shape file
+SSF_willi_shape <- st_read(here("Schneider_Springs_Fire_2021", "output_for_analysis", "Schneider_Springs_Sites_Willi", "SSF_sites.shp")) 
+
+# Read in pole creek fire 
+schneider_shape <- read_sf(here("Schneider_Springs_Fire_2021", "inputs", "Map", "schneider_burn_bndy.shp"))
+
+schneider_shape <- st_zm(schneider_shape)
+
+# Plot fire shape file 
+ggplot(data = schneider_shape) +
+  geom_sf(aes(fill = "red")) +
+  theme_minimal()
+
+# plot on top of each other 
+ggplot() +
+  geom_sf(data = SSF_willi_shape, fill = "#56B4E9", alpha = 0.2, color = "black") +
+  geom_sf(data = schneider_shape, fill = "red", alpha = 0.2, color = "black") +
+  theme_minimal()
+
+# Pull the dnbrs for the Schneider Springs Fire
+schneider_dnbr <- raster(here("Schneider_Springs_Fire_2021", "inputs", "shape_files", "Etienne", "Schneider_L8_dNBR.tif"))
+
+# # Clip data to the watershed
+dnbr <- clean_raster(schneider_dnbr, schneider_shape, type = "numeric", return="raster")
+plot(dnbr) #use to make sure it's doing what you expect
+
+# L8_dnbr <- dnbr
+
+```
+
+# Etienne L8 Watershed DNBR values
+```{r for loop}
+# Define the fire thresholds for burn severity
+Fire_thresholds <- tibble(
+  zone = c(1:5),
+  min = c(-100, 100, 270, 440, 660),
+  max = c(99, 269, 439, 659, 1300),
+  fire_name = "schneider_fire",
+  burn_severity = c("Unburned", "Low", "Moderate_Low", "Moderate_High", "High")
+)
+
+# Read the sites we visited for SSF sampling campaign file with multiple sites
+SSF_willi_shape <- st_read(here("Schneider_Springs_Fire_2021", "output_for_analysis", "Schneider_Springs_Sites_Willi", "SSF_sites.shp")) 
+
+# List of unique site names within Oak_Creek_tribs.shp
+site_names <- unique(SSF_willi_shape$site)
+
+# Initialize empty results dataframe
+etienne_results <- tibble(method = character(),
+                          site = character(), 
+                          mean_dnbr = numeric(), 
+                          burn_severity = character())
+
+# Loop through each site within Oak_Creek_tribs.shp
+for (site_name in site_names) {
+  
+  # Filter the shapefile by site
+  site_shape <- SSF_willi_shape %>%
+    filter(site == site_name)
+
+
+  # Plot to verify filtering
+  ggplot() +
+    geom_sf(data = site_shape, fill = "#56B4E9", alpha = 0.2, color = "black") +
+    theme_minimal()
+  
+  # Clean and clip raster to the site boundary
+  basin_dnbr <- clean_raster(dnbr, site_shape, type = "numeric", return = "raster")
+  
+  # Plot to verify clipping
+  plot(basin_dnbr)
+  
+  # Check and transform CRS if necessary
+  if (compareCRS(dnbr, site_shape) == FALSE) {
+    site_shape <- st_transform(site_shape, crs(dnbr))
+  }
+  
+  # Extract mean dNBR for the site
+  mean_dnbr <- exactextractr::exact_extract(dnbr, site_shape, "mean", progress = FALSE)
+  
+  # Categorize the mean dNBR based on fire thresholds
+  burn_severity <- Fire_thresholds %>%
+    filter(min <= mean_dnbr & max >= mean_dnbr) %>%
+    dplyr::select(burn_severity) %>%
+    pull()
+  
+  # Append the results to the results dataframe
+  etienne_results <- etienne_results %>%
+    add_row(method = "L8",
+            site = site_name, 
+            mean_dnbr = mean_dnbr, 
+            burn_severity = burn_severity)
+}
+
+# View the final results
+etienne_results
+
+```
+
+# Etienne S2 dNBR for SSF visited sites
+```{r}
+# Read in watershed shape file
+SSF_willi_shape <- st_read(here("Schneider_Springs_Fire_2021", "output_for_analysis", "Schneider_Springs_Sites_Willi", "SSF_sites.shp")) 
+
+# Read in pole creek fire 
+schneider_shape <- read_sf(here("Schneider_Springs_Fire_2021", "inputs", "Map", "schneider_burn_bndy.shp"))
+
+schneider_shape <- st_zm(schneider_shape)
+
+# Plot fire shape file 
+ggplot(data = schneider_shape) +
+  geom_sf(aes(fill = "red")) +
+  theme_minimal()
+
+# plot on top of each other 
+ggplot() +
+  geom_sf(data = SSF_willi_shape, fill = "#56B4E9", alpha = 0.2, color = "black") +
+  geom_sf(data = schneider_shape, fill = "red", alpha = 0.2, color = "black") +
+  theme_minimal()
+
+# Pull the dnbrs for the Schneider Springs Fire
+schneider_dnbr <- raster(here("Schneider_Springs_Fire_2021", "inputs", "shape_files", "Etienne", "Schneider_S2_dNBR.tif"))
+
+# # Clip data to the watershed
+dnbr <- clean_raster(schneider_dnbr, schneider_shape, type = "numeric", return="raster")
+plot(dnbr) #use to make sure it's doing what you expect
+
+# S2_dnbr <- dnbr
+
+```
+
+# Etienne S2 Watershed DNBR values
+```{r for loop}
+# Define the fire thresholds for burn severity
+Fire_thresholds <- tibble(
+  zone = c(1:5),
+  min = c(-100, 100, 270, 440, 660),
+  max = c(99, 269, 439, 659, 1300),
+  fire_name = "schneider_fire",
+  burn_severity = c("Unburned", "Low", "Moderate_Low", "Moderate_High", "High")
+)
+
+# Read the sites we visited for SSF sampling campaign file with multiple sites
+SSF_willi_shape <- st_read(here("Schneider_Springs_Fire_2021", "output_for_analysis", "Schneider_Springs_Sites_Willi", "SSF_sites.shp")) 
+
+# List of unique site names within Oak_Creek_tribs.shp
+site_names <- unique(SSF_willi_shape$site)
+
+# Initialize empty results dataframe
+etienne_S2_results <- tibble(method = character(),
+                             site = character(), 
+                             mean_dnbr = numeric(), 
+                             burn_severity = character())
+
+# Loop through each site within Oak_Creek_tribs.shp
+for (site_name in site_names) {
+  
+  # Filter the shapefile by site
+  site_shape <- SSF_willi_shape %>%
+    filter(site == site_name)
+
+
+  # Plot to verify filtering
+  ggplot() +
+    geom_sf(data = site_shape, fill = "#56B4E9", alpha = 0.2, color = "black") +
+    theme_minimal()
+  
+  # Clean and clip raster to the site boundary
+  basin_dnbr <- clean_raster(dnbr, site_shape, type = "numeric", return = "raster")
+  
+  # Plot to verify clipping
+  plot(basin_dnbr)
+  
+  # Check and transform CRS if necessary
+  if (compareCRS(dnbr, site_shape) == FALSE) {
+    site_shape <- st_transform(site_shape, crs(dnbr))
+  }
+  
+  # Extract mean dNBR for the site
+  mean_dnbr <- exactextractr::exact_extract(dnbr, site_shape, "mean", progress = FALSE)
+  
+  # Categorize the mean dNBR based on fire thresholds
+  burn_severity <- Fire_thresholds %>%
+    filter(min <= mean_dnbr & max >= mean_dnbr) %>%
+    dplyr::select(burn_severity) %>%
+    pull()
+  
+  # Append the results to the results dataframe
+  etienne_S2_results <- etienne_S2_results %>%
+    add_row(method = "S2",
+            site = site_name, 
+            mean_dnbr = mean_dnbr, 
+            burn_severity = burn_severity)
+}
+
+# View the final results
+etienne_S2_results
+
+```
+
+# Compare 3 different results
+```{r}
+method_combined_results <- rbind(MTBS_results, etienne_results, etienne_S2_results)
+
+```
+
+
+
+
+### BS Method Comparison 
+```{r}
+# Plot and compare distribution pixel count across dNBR values over entire Schneider Spring Polygon
+
+MTBS_dnbr
+
+L8_dnbr
+
+S2_dnbr
+
+# Extract dNBR values and convert to data frames
+mtbs_dnbr_values <- values(MTBS_dnbr)
+l8_dnbr_values <- values(L8_dnbr)
+s2_dnbr_values <- values(S2_dnbr)
+
+mtbs_df <- data.frame(dNBR = mtbs_dnbr_values, source = "MTBS")
+l8_df <- data.frame(dNBR = l8_dnbr_values, source = "L8")
+s2_df <- data.frame(dNBR = s2_dnbr_values, source = "S2")
+
+# Combine the data frames into one
+dnbr_combined <- bind_rows(mtbs_df, l8_df, s2_df)
+
+# Plot the distribution using ggplot2
+ggplot(dnbr_combined, aes(x = dNBR, fill = source)) +
+  geom_histogram(position = "dodge", bins = 30, alpha = 0.7) +
+  theme_minimal() +
+  labs(title = "dNBR Distribution Across Different Sources",
+       x = "dNBR Value",
+       y = "Count")
+
+ggplot(dnbr_combined, aes(x = dNBR, fill = source)) +
+  geom_histogram(position = "dodge", bins = 30, alpha = 0.7) +
+  facet_wrap(~source) +
+  theme_minimal()
+
+
+```
+
+# Zonal Statistics
+```{r}
+## S4 method for signature 'SpatRaster,SpatRaster'
+zonal(x, z, fun="mean", ..., w=NULL, wide=TRUE,
+		as.raster=FALSE, filename="", overwrite=FALSE, wopt=list())
+
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

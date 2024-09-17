@@ -315,6 +315,76 @@ clean_raster <- function (raster, sf, type = "numeric",
 
 ```
 
+# Burn Threshold for Retreat Fire
+```{r}
+# # Define the list of directories for each fire
+# fire_directories <- list(
+#   here("gis_data", "Fire_Perimeters", "angora", "mtbs", "2007", "ca3888612004020070623"),
+#   here("gis_data", "Fire_Perimeters", "caldor", "mtbs", "2021", "ca3858612053820210815"),
+#   here("gis_data", "Fire_Perimeters", "clovermist", "mtbs", "1988", "wy4473710995419880709"),
+#   here("gis_data", "Fire_Perimeters", "fourmile_canyon", "mtbs", "2010", "co4005110538520100906"),
+#   here("gis_data", "Fire_Perimeters", "gaviota", "mtbs", "2004", "ca3448712019620040605"),
+#   here("gis_data", "Fire_Perimeters", "hayman", "mtbs", "2002", "co3922010528720020608"),
+#   here("gis_data", "Fire_Perimeters", "high_park", "mtbs", "2012", "co4058910540420120609"),
+#   here("gis_data", "Fire_Perimeters", "mosquito", "mtbs", "2022", "ca3900612074520220907"),
+#   here("gis_data", "Fire_Perimeters", "pole_creek", "mtbs", "2018", "ut3980611166020180906"),
+#   here("gis_data", "Fire_Perimeters", "rampage_complex_double_mountain_2", "mtbs", "2003", "mt4839411359020030819"),
+#   here("gis_data", "Fire_Perimeters", "red_bench", "mtbs", "1988", "mt4878711426219880906"),
+#   here("gis_data", "Fire_Perimeters", "wragg", "mtbs", "2015", "ca3851412213120150722"))
+# 
+# # Initialize a list to store the results
+# results <- list()
+# 
+# # Loop over each fire directory
+# for (dir in fire_directories) {
+#   # Extract fire name from directory path
+#   fire_name <- str_match(dir, "Fire_Perimeters/(.*?)/")[2]
+# 
+#   # Construct the file paths for the dnbr and dnbr6 rasters using here
+#   dnbr6_path <- here(dir, paste0(fire_name, "_dnbr6.tif"))
+#   dnbr_path <- here(dir, paste0(fire_name, "_dnbr.tif"))
+#   
+#   # Load the rasters
+#   dnbr6 <- raster(dnbr6_path)
+#   dnbr <- raster(dnbr_path)
+#   
+#   # Perform zonal statistics and convert to tibbles
+#   thresh_low <- as_tibble(zonal(dnbr, dnbr6, "min"), .name_repair = "minimal") %>% 
+#     rename(zone = 1, min = 2)
+#   thresh_high <- as_tibble(zonal(dnbr, dnbr6, "max"), .name_repair = "minimal") %>% 
+#     rename(zone = 1, max = 2)
+#   
+#   # Join the two tibbles by 'zone'
+#   thresh <- inner_join(thresh_low, thresh_high, by = "zone")
+#   
+#   # Add fire_name as a column
+#   thresh <- thresh %>% 
+#     mutate(fire_name = fire_name)
+#   
+#   # Store the results in the list
+#   results[[fire_name]] <- thresh
+# }
+# 
+# # Combine all results into a single data frame (optional)
+# combined_results <- bind_rows(results)
+# 
+# # These zones do not have an association with the Burn Severity 
+# combined_results_filter <- combined_results %>% 
+#   filter(!zone == "0") %>% 
+#   filter(!zone == "6")
+# 
+# # Mutate a column to assign burn severities to the thresholds
+# combined_results_filter <- combined_results_filter %>% 
+#   mutate(Burn_Severity = case_when(zone == "1" ~ "Unburned to Low",
+#                                    zone == "2" ~ "Low",
+#                                    zone == "3" ~ "Moderate",
+#                                    zone == "4" ~ "High",
+#                                    zone == "5" ~ "Increased Greeness"))
+# 
+# write.csv(combined_results_filter, here("Output_for_analysis", "13_Meta_calculate_thresholds_per_fire", "Fire_thresholds.csv"))
+
+```
+
 # Oak Creek Test
 ```{r}
 # Read in watershed shape file
@@ -346,34 +416,79 @@ plot(dnbr) #use to make sure it's doing what you expect
 ```
 
 # Watershed DNBR values
-```{r Clint Canyon}
-# Read in watershed shape file
-clint_shape <- st_read(here("Retreat_Fire_2024", "output_for_analysis", "02_Retreat_Fire_Site_Selection", "Oak_Creek_tribs.shp")) %>% 
-  filter(site == "Clint Canyon")
+```{r for loop}
+# Define the fire thresholds for burn severity
+Fire_thresholds <- tibble(
+  zone = c(1:5),
+  min = c(-100, 100, 270, 440, 660),
+  max = c(99, 269, 439, 659, 1300),
+  fire_name = "retreat_fire",
+  burn_severity = c("Unburned", "Low", "Moderate_Low", "Moderate_High", "High")
+)
 
-# plot to make sure this is correct
-ggplot() +
-  geom_sf(data = clint_shape, fill = "#56B4E9", alpha = 0.2, color = "black") +
-  theme_minimal()
+# Read the Oak_Creek_tribs.shp file with multiple sites
+oak_creek_tribs_shape <- st_read(here("Retreat_Fire_2024", "output_for_analysis", "02_Retreat_Fire_Site_Selection", "Oak_Creek_tribs.shp"))
 
-basin_dnbr <- clean_raster(dnbr, clint_shape,  type = "numeric", return="raster")
-plot(basin_dnbr) #use to make sure it's doing what you expect
+# List of unique site names within Oak_Creek_tribs.shp
+site_names <- unique(oak_creek_tribs_shape$site)
 
-# make sure basin and fire layer are the same projection
-if(compareCRS(dnbr, clint_shape) == F){
-      basin_pj <- st_transform(clint_shape, crs(dnbr))}else{
-        basin_pj <- clint_shape
-      }
+# Initialize empty results dataframe
+oak_creek_tribs_results <- tibble(site = character(), 
+                                  mean_dnbr = numeric(), 
+                                  burn_severity = character())
 
-#extract data
-mean_dnbr <- exactextractr::exact_extract(dnbr,basin_pj, "mean", 
-                                           progress=F) 
+# Define directory for the plots
+output_directory <- here("Retreat_Fire_2024", "plots", "burn_severity/")
 
-# Clint Canyon mean dNBR  - 207.204971313477
+# Loop through each site within Oak_Creek_tribs.shp
+for (site_name in site_names) {
+  
+  # Filter the shapefile by site
+  site_shape <- oak_creek_tribs_shape %>%
+    filter(site == site_name)
 
-# burn_severity_thresholds <- burn_severity_thresholds %>% 
-#   mutate(mean_dnbr = case_when(site == "Benjamin_Slough" ~ 457.194000244141,
-#                                          TRUE ~ mean_dnbr))
+
+  # Plot to verify filtering
+  ggplot() +
+    geom_sf(data = site_shape, fill = "#56B4E9", alpha = 0.2, color = "black") +
+    theme_minimal()
+  
+  # Clean and clip raster to the site boundary
+  basin_dnbr <- clean_raster(dnbr, site_shape, type = "numeric", return = "raster")
+  
+  # Plot to verify clipping
+  png(filename = paste0(output_directory, site_name, "_clipping_plot.pdf"))
+  plot(basin_dnbr)
+  dev.off()
+  
+  # Check and transform CRS if necessary
+  if (compareCRS(dnbr, site_shape) == FALSE) {
+    site_shape <- st_transform(site_shape, crs(dnbr))
+  }
+  
+  # Extract mean dNBR for the site
+  mean_dnbr <- exactextractr::exact_extract(dnbr, site_shape, "mean", progress = FALSE)
+  
+  # Categorize the mean dNBR based on fire thresholds
+  burn_severity <- Fire_thresholds %>%
+    filter(min <= mean_dnbr & max >= mean_dnbr) %>%
+    dplyr::select(burn_severity) %>%
+    pull()
+  
+  # Append the results to the results dataframe
+  oak_creek_tribs_results <- oak_creek_tribs_results %>%
+    add_row(site = site_name, 
+            mean_dnbr = mean_dnbr, 
+            burn_severity = burn_severity)
+}
+
+# View the final results
+oak_creek_tribs_results
+
+write_csv(oak_creek_tribs_results, here("Retreat_Fire_2024", "output_for_analysis", "01_Identify_impacted_watersheds", "oak_creek_tribs_dNBR.csv"))
+
+
+# ak_Creek_tribs_geospatial <- read_csv("Retreat_Fire_2024/output_for_analysis/02_Retreat_Fire_Site_Selection/Oak_Creek_tribs_geospatial.csv")
 
 
 ```
@@ -456,5 +571,59 @@ st_write(oak_creek_shape, "~/GitHub/rc_sfa-fire-watch/Fires_2024/Retreat_Fire/si
 ```
 
 
+
+############################# SCRIPT GRAVEYARD ##############################################
+
+# Individual watershed test
+```{r Clint Canyon}
+# Read in watershed shape file
+clint_shape <- st_read(here("Retreat_Fire_2024", "output_for_analysis", "02_Retreat_Fire_Site_Selection", "Oak_Creek_tribs.shp")) %>% 
+  filter(site == "Clint Canyon")
+
+# plot to make sure this is correct
+ggplot() +
+  geom_sf(data = clint_shape, fill = "#56B4E9", alpha = 0.2, color = "black") +
+  theme_minimal()
+
+basin_dnbr <- clean_raster(dnbr, clint_shape,  type = "numeric", return="raster")
+plot(basin_dnbr) #use to make sure it's doing what you expect
+
+# make sure basin and fire layer are the same projection
+if(compareCRS(dnbr, clint_shape) == F){
+      basin_pj <- st_transform(clint_shape, crs(dnbr))}else{
+        basin_pj <- clint_shape
+      }
+
+#extract data
+mean_dnbr <- exactextractr::exact_extract(dnbr,basin_pj, "mean", 
+                                           progress=F) 
+
+# Clint Canyon mean dNBR  - 207.204971313477
+
+Fire_thresholds <- tibble(
+  zone = c(1:5),
+  min = c(-100, 100, 270, 440, 660),
+  max = c(99, 269, 439, 659, 1300),
+  fire_name = ("retreat_fire"),
+  burn_severity = c("Unburned", "Low", "Moderate_Low", "Moderate_High", "High")
+)
+
+# Create a results column based on the ranges
+result <- Fire_thresholds %>%
+  filter(min <= mean_dnbr & max >= mean_dnbr) %>%
+  dplyr::select(burn_severity) %>%
+  pull()
+
+# data frame: 
+# Categorize mean values based on the ranges
+df_results <- df_sites %>%
+  rowwise() %>%
+  mutate(category = df_ranges %>%
+                     filter(min_value <= mean_value & max_value >= mean_value) %>%
+                     select(category) %>%
+                     pull())
+
+
+```
 
 

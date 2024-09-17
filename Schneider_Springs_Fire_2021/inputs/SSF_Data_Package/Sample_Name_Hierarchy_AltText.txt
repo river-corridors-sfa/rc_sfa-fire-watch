@@ -1,0 +1,6 @@
+Panel 1 - Name: Parent_ID; Example: SSF_01; Description: All samples from one sampling event start with the Parent_ID. Parent_ID can be found in the sensor data files and SSF_Field_Metadata.csv.
+
+Panel 2 - Name: Sample_Name; Example: SSF_01_Water; Description: When referring to all samples of a given material from one sampling event, the Sample_Name consists of the Parent_ID followed by an indicator of the material. An example of this can be found in SSF_Metadata_IGSN-Mapping.csv.
+
+Panel 3 - Name: Sample_Name; Example: SSF_01_TSS-1, SSF_01_OCN-1, SSF_01_OCN-2, SSF_01_OCN-3; Description: When referring to individual samples, the Sample_Name consists of the Parent_ID followed by an analysis-specific indicator code and may include the replicate number. An example of this can be found in SSF_Water_TSS.csv and SSF_Water_NPOC_TN.csv. Please note that the sample types and example files listed are non-exhaustive 
+

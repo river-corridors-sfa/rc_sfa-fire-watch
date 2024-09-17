@@ -1,0 +1,18 @@
+Parent_ID,Site_ID,Latitude,Longitude,Fire_Relationship
+SSF_01,S01,46.976,-121.1579,Site downstream of fire
+SSF_02,S02,46.975461,-121.158154,Site downstream of fire
+SSF_04,S04,46.8099,-121.0672,Site within fire boundary
+SSF_10,S08,47.0171,-121.136,Site has no relationship to the fire
+SSF_03,S10,46.8095,-121.0675,Site within fire boundary
+SSF_05,S11,46.900595,-121.246539,Site downstream of fire
+SSF_14,S47R,46.621259,-121.302456,Site has no relationship to the fire
+SSF_13,S49R,46.724186,-120.813397,Site has no relationship to the fire
+SSF_15,T05P,46.98904,-121.099,Site has no relationship to the fire
+SSF_12,S54,46.6832,-120.94048,Site has no relationship to the fire
+SSF_17,S15,47.36351,-121.10693,Site has no relationship to the fire
+SSF_11,S03,47.0195,-121.1285,Site has no relationship to the fire
+SSF_09,S23,47.1858237,-120.9186139,Site has no relationship to the fire
+SSF_16,S29,47.0821458,-120.7328977,Site has no relationship to the fire
+SSF_07,S50P,46.7521,-120.818,Site downstream of fire
+SSF_08,S58,46.6856,-120.655,Site downstream of fire
+SSF_06,T41,46.72411,-120.7,Site downstream of fire

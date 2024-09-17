@@ -109,7 +109,8 @@ sites <- sites %>%
   filter(site %in% c('Clint Canyon', 'Pine Tree Canyon',
                      'Hoover Canyon', 'Indian Creek',
                      'North Fork Oak Creek', 'Counterfeit Creek',
-                     'South Fork Oak Creek')) # For some reason site # 12 does not get its COMID pulled so I am removing it. 
+                     'South Fork Oak Creek')) 
+                     #'Cabin Creek', 'Sentinel Creek')) 
 
 # North Fork Cowiche Creek COMID - 24423497
 if(site_type == "xy"){

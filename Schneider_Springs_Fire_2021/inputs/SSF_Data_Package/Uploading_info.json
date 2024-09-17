@@ -1,0 +1,26 @@
+{
+
+    "Token": ["eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJodHRwOlwvXC9vcmNpZC5vcmdcLzAwMDAtMDAwMS05MjQwLTk2ODciLCJmdWxsTmFtZSI6IkJyaWVhbm5lIEZvcmJlcyIsImlzc3VlZEF0IjoiMjAyMy0xMC0zMFQyMDo0NToxMi40MzYrMDA6MDAiLCJjb25zdW1lcktleSI6InRoZWNvbnN1bWVya2V5IiwiZXhwIjoxNjk4NzYzNTEyLCJ1c2VySWQiOiJodHRwOlwvXC9vcmNpZC5vcmdcLzAwMDAtMDAwMS05MjQwLTk2ODciLCJ0dGwiOjY0ODAwLCJpYXQiOjE2OTg2OTg3MTJ9.RhLWkZZf6kdJc2Xj94m0MuP9sGZY8lsMt8BEhTVJWdok0BYOKiFQTz_iSf3xwIjd7ZGV9a0byStwEAxjKViyw_D-bkgkBvodv_MTsAIRYTbeSeA_UIjLWWwGifbpec-dqnIU20awAXIbOUATsbfDBIS9m5JQF_DnRL_Who0lrhk6Jm1Ld2JLNSW4t6CBu4fzHE8iMshLGR0I4xBEx-tkgEQHheql4vLcCTC-4EfoOAjhPb1xPHHzuaAPCZemo7zvFvFEBv4ZaZP7fJHAGhTvSewtGmaQ0akF6HIN_w0yA7chKb9RiSy2pkWecSNwGV45NuVbPef4MPJi78vLX8EhMg"],
+    
+    "Upload_website": ["https://api.ess-dive.lbl.gov"],
+    
+    "Data_package_path": ["Z:/00_Cross-SFA_ESSDIVE-Data-Package-Upload/01_Study-Data-Package-Folders/SSF_Data_Package/SSF_Data_Package/SSF_Data_Package.zip"],
+    
+    "Data_package_docx": ["Z:/00_Cross-SFA_ESSDIVE-Data-Package-Upload/01_Study-Data-Package-Folders/SSF_Data_Package/SSF_ESSDIVE_Metadata.docx"],
+        
+    "Data_package_spatial_csv": ["Z:/00_Cross-SFA_ESSDIVE-Data-Package-Upload/01_Study-Data-Package-Folders/SSF_Data_Package/SSF_Geospatial.csv"],
+    
+    "Data_package_spatial_loc_column_header_ID": ["Sample_Name","Locality","Physiographic_Feature_Name","State_or_Province", "Country"],
+
+    "Data_package_spatial_loc_column_header_Latitude": ["Latitude"],
+    
+    "Data_package_spatial_loc_column_header_Longitude": ["Longitude"],
+
+    "Script_folder": ["Z:/00_Cross-SFA_ESSDIVE-Data-Package-Upload/02_Data-Package_Rscript/"],
+    
+    "Author_file":  ["Z:/00_Cross-SFA_ESSDIVE-Data-Package-Upload/00_Instructions/RC_SFA_author_information.xlsx"],
+    
+    "JSONLD_file": ["Z:/00_Cross-SFA_ESSDIVE-Data-Package-Upload/02_Data-Package_Rscript/SFA_Default.jsonld"],
+    
+    "Zip_data_folder": ["no"]
+}
