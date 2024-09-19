@@ -233,7 +233,7 @@ schneider_dnbr <- raster(here("Schneider_Springs_Fire_2021", "inputs", "shape_fi
 dnbr <- clean_raster(schneider_dnbr, schneider_shape, type = "numeric", return="raster")
 plot(dnbr) #use to make sure it's doing what you expect
 
-# MTBS_dnbr <- dnbr
+MTBS_dnbr <- dnbr
 
 ```
 
@@ -334,7 +334,7 @@ schneider_dnbr <- raster(here("Schneider_Springs_Fire_2021", "inputs", "shape_fi
 dnbr <- clean_raster(schneider_dnbr, schneider_shape, type = "numeric", return="raster")
 plot(dnbr) #use to make sure it's doing what you expect
 
-# L8_dnbr <- dnbr
+L8_dnbr <- dnbr
 
 ```
 
@@ -435,7 +435,7 @@ schneider_dnbr <- raster(here("Schneider_Springs_Fire_2021", "inputs", "shape_fi
 dnbr <- clean_raster(schneider_dnbr, schneider_shape, type = "numeric", return="raster")
 plot(dnbr) #use to make sure it's doing what you expect
 
-# S2_dnbr <- dnbr
+S2_dnbr <- dnbr
 
 ```
 
@@ -546,11 +546,19 @@ ggplot(dnbr_combined, aes(x = dNBR, fill = source)) +
   labs(title = "dNBR Distribution Across Different Sources",
        x = "dNBR Value",
        y = "Count")
-
+# Facet wrap
 ggplot(dnbr_combined, aes(x = dNBR, fill = source)) +
   geom_histogram(position = "dodge", bins = 30, alpha = 0.7) +
   facet_wrap(~source) +
   theme_minimal()
+
+# Plot the distribution using geom_density
+ggplot(dnbr_combined, aes(x = dNBR, fill = source)) +
+  geom_density(position = "dodge", alpha = 0.75) +
+  theme_minimal() +
+  labs(title = "dNBR Distribution Across Different Sources",
+       x = "dNBR Value",
+       y = "Count")
 
 
 ```
