@@ -385,7 +385,7 @@ clean_raster <- function (raster, sf, type = "numeric",
 
 ```
 
-# Oak Creek Test
+# Oak Creek
 ```{r}
 # Read in watershed shape file
 oak_creek_tribs_shape <- st_read(here("Retreat_Fire_2024", "output_for_analysis", "02_Retreat_Fire_Site_Selection", "Oak_Creek_tribs.shp")) 
@@ -486,6 +486,122 @@ for (site_name in site_names) {
 oak_creek_tribs_results
 
 write_csv(oak_creek_tribs_results, here("Retreat_Fire_2024", "output_for_analysis", "01_Identify_impacted_watersheds", "oak_creek_tribs_dNBR.csv"))
+
+
+# ak_Creek_tribs_geospatial <- read_csv("Retreat_Fire_2024/output_for_analysis/02_Retreat_Fire_Site_Selection/Oak_Creek_tribs_geospatial.csv")
+
+
+```
+
+# Tieton Tribs
+```{r}
+# Read in watershed shape file
+tieton_tribs_shape <- st_read(here("Retreat_Fire_2024", "output_for_analysis", "02_Retreat_Fire_Site_Selection", "Tieton_tribs.shp")) 
+
+# Read in pole creek fire 
+retreat_shape <- read_sf(here("Retreat_Fire_2024", "inputs", "shape_files", "Retreat_Fire.shp"))
+
+retreat_shape <- st_zm(retreat_shape)
+
+# Plot fire shape file 
+ggplot(data = retreat_shape) +
+  geom_sf(aes(fill = "red")) +
+  theme_minimal()
+
+# plot on top of each other 
+ggplot() +
+  geom_sf(data = tieton_tribs_shape, fill = "#56B4E9", alpha = 0.2, color = "black") +
+  geom_sf(data = retreat_shape, fill = "red", alpha = 0.2, color = "black") +
+  theme_minimal()
+
+# 
+ggsave("Tieton_tribs.pdf",
+  plot = last_plot(),
+  path = here("Retreat_Fire_2024", "plots", "watersheds"),
+  width = 6, 
+  height = 8,
+)
+
+# Pull the dnbrs for the Retreat Fire
+retreat_dnbr <- raster(here("Retreat_Fire_2024", "inputs", "shape_files", "dNBR_RetreatFire.tif"))
+
+# # Clip data to the watershed
+dnbr <- clean_raster(retreat_dnbr, retreat_shape, type = "numeric", return="raster")
+plot(dnbr) #use to make sure it's doing what you expect
+
+```
+
+# Watershed DNBR values - Tieton tribs
+```{r for loop}
+# Define the fire thresholds for burn severity
+Fire_thresholds <- tibble(
+  zone = c(1:5),
+  min = c(-100, 100, 270, 440, 660),
+  max = c(99, 269, 439, 659, 1300),
+  fire_name = "retreat_fire",
+  burn_severity = c("Unburned", "Low", "Moderate_Low", "Moderate_High", "High")
+)
+
+# Read the Tieton_tribs.shp file with multiple sites
+tieton_tribs_shape <- st_read(here("Retreat_Fire_2024", "output_for_analysis", "02_Retreat_Fire_Site_Selection", "Tieton_tribs.shp")) 
+
+# List of unique site names within Oak_Creek_tribs.shp
+site_names <- unique(tieton_tribs_shape$site)
+
+# Initialize empty results dataframe
+tieton_tribs_results <- tibble(site = character(), 
+                                  mean_dnbr = numeric(), 
+                                  burn_severity = character())
+
+# Define directory for the plots
+output_directory <- here("Retreat_Fire_2024", "plots", "burn_severity/")
+
+# Loop through each site within Oak_Creek_tribs.shp
+for (site_name in site_names) {
+  
+  # Filter the shapefile by site
+  site_shape <- tieton_tribs_shape %>%
+    filter(site == site_name)
+
+
+  # Plot to verify filtering
+  ggplot() +
+    geom_sf(data = site_shape, fill = "#56B4E9", alpha = 0.2, color = "black") +
+    theme_minimal()
+  
+  # Clean and clip raster to the site boundary
+  basin_dnbr <- clean_raster(dnbr, site_shape, type = "numeric", return = "raster")
+  
+  # Plot to verify clipping
+  png(filename = paste0(output_directory, site_name, "_clipping_plot.png"))
+  plot(basin_dnbr, main = paste("dNBR for Site:", site_name))
+  dev.off()
+  
+  # Check and transform CRS if necessary
+  if (compareCRS(dnbr, site_shape) == FALSE) {
+    site_shape <- st_transform(site_shape, crs(dnbr))
+  }
+  
+  # Extract mean dNBR for the site
+  mean_dnbr <- exactextractr::exact_extract(dnbr, site_shape, "mean", progress = FALSE)
+  
+  # Categorize the mean dNBR based on fire thresholds
+  burn_severity <- Fire_thresholds %>%
+    filter(min <= mean_dnbr & max >= mean_dnbr) %>%
+    dplyr::select(burn_severity) %>%
+    pull()
+  
+  # Append the results to the results dataframe
+  tieton_tribs_results <- tieton_tribs_results %>%
+    add_row(site = site_name, 
+            mean_dnbr = mean_dnbr, 
+            burn_severity = burn_severity)
+}
+
+# View the final results
+tieton_tribs_results
+
+write_csv(tieton_tribs_results, here("Retreat_Fire_2024", "output_for_analysis", "01_Identify_impacted_watersheds", "oak_creek_tribs_dNBR.csv"))
 
 
 # ak_Creek_tribs_geospatial <- read_csv("Retreat_Fire_2024/output_for_analysis/02_Retreat_Fire_Site_Selection/Oak_Creek_tribs_geospatial.csv")
