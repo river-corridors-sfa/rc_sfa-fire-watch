@@ -601,7 +601,7 @@ for (site_name in site_names) {
 # View the final results
 tieton_tribs_results
 
-write_csv(tieton_tribs_results, here("Retreat_Fire_2024", "output_for_analysis", "01_Identify_impacted_watersheds", "oak_creek_tribs_dNBR.csv"))
+write_csv(tieton_tribs_results, here("Retreat_Fire_2024", "output_for_analysis", "01_Identify_impacted_watersheds", "tieton_tribs_dNBR.csv"))
 
 
 # ak_Creek_tribs_geospatial <- read_csv("Retreat_Fire_2024/output_for_analysis/02_Retreat_Fire_Site_Selection/Oak_Creek_tribs_geospatial.csv")

@@ -1,0 +1,172 @@
+---
+title: "Retreat_Discharge"
+output: html_document
+date: "2024-09-23"
+editor_options: 
+  chunk_output_type: console
+---
+
+The purpose of this script is to take velocity transect measurements collected from the Swoffer Wading rod and convert to discharge.
+
+Before running this script workflow:
+
+Step 1) update "SSF_Swoffer_Metadata" meta data sheet with values from the field 
+  *Make sure units are properly labelled. 
+
+Script Workflow:
+
+Step 1) Load in "SSF_Swoffer_Metadata" meta data sheet from googledrive located in 
+
+Step 2) run for-loop chunk that calculates discharge for each site 
+
+Step 3) Save output file as: in "enter_directory filepath"
+
+### Load in Libraries ###
+```{r}
+rm(list = ls())
+
+library(tidyverse)
+library(gsheet)
+library(zoo)
+library(dplyr)
+```
+
+# test #
+```{r}
+# Q <- gsheet2tbl('https://docs.google.com/spreadsheets/d/1sr8z7Jn-_n3M3T3se8LL1ZOSHFZhrCyDL1aEax3aT38/edit#gid=0')
+Q <- read_csv("~/Documents/RC_3/Fire_Watch/2024/Swoffer/oak_creek_swoffer.csv") %>% 
+  mutate(Date = mdy(Date))
+###### TEST WITH THE DIFFERENT UNITS - 
+# **if the unit is "m" than multiply by 100
+# **if the unit is "cm" than print
+# **if the unit is "ft" than multiply by 30.48 to all get it to cm's 
+
+Q <- Q %>% 
+  mutate(Water_Depth_cm = case_when(Water_Depth_unit == 'm' ~ Water_Depth * 100,
+                                    Water_Depth_unit == 'ft' ~ Water_Depth * 30.48,
+                                    Water_Depth_unit == 'cm' ~ print(Water_Depth)),
+         
+         Distance_cm = case_when(Distance_unit == 'm' ~ Distance * 100,
+                                    Distance_unit == 'ft' ~ Distance * 30.48,
+                                    Distance_unit == 'cm' ~ print(Distance)))
+
+
+# BRIE for loop test # 
+formatted <- Q %>% 
+  mutate(site_DateTime = str_c(Site_ID, Date, Start_Time, sep = "_"),
+         DateTimePST = ymd_hms(paste(Date, hms(Start_Time))))
+
+# creating an empty tibble that will be populated with the for-loop data 
+combine <- tibble(Site_ID = as.character(), 
+                  DateTimePST = as.character(),
+                  FinalQ = as.numeric())
+
+# list of what the for loop is looping through (site_DateTime from the "formatted" df)
+sites <- unique(formatted$site_DateTime)
+
+# for loop #
+# variable - something that doesnt exist yet and what you will be creating
+
+for (site in sites) {
+  
+  filter <- formatted %>% 
+    filter(site_DateTime == site) %>% 
+    mutate(VeloMean = rowMeans(dplyr::select(., starts_with("Velocity")), na.rm = TRUE))
+  
+  if(nrow(filter) > 2) {
+    
+    summary <- filter %>% 
+      dplyr::group_by(site_DateTime, Point) %>% 
+      summarise(Site_ID = unique(Site_ID),
+                DateTimePST = unique(DateTimePST),
+                Water_Depth_cm = unique(Water_Depth_cm),
+                Distance_cm = unique(Distance_cm),
+                VeloMeanMean = mean(VeloMean, na.rm = TRUE)) %>% 
+      mutate(VeloMeanPoints = rollapply(VeloMeanMean, 2, mean, align = 'right', fill = NA),
+           DistDiff = rollapply(Distance_cm, 2, diff, align = 'right', fill = NA),
+           DepthMean = rollapply(Water_Depth_cm, 2, mean, align = 'right', fill = NA),
+           TransectQ = ((DistDiff * DepthMean)/10000000) * (VeloMeanPoints * 1000),
+           FinalQ = sum(TransectQ, na.rm = TRUE)) %>% 
+      ungroup() %>% 
+      dplyr::select(Site_ID, DateTimePST, FinalQ) %>% 
+      distinct() %>% 
+      mutate(DateTimePST = paste(" ", as.character(DateTimePST), sep = ""))
+    
+    combine <- combine %>% 
+    add_row(summary)
+  
+  }
+  
+}
+
+write_csv(formatted, "~/Documents/RC_3/Fire_Watch/2024/Swoffer/Oak_Creek_Swoffer.csv")
+
+
+
+
+```
+
+
+
+### PLOT ###
+```{r}
+ggplot(combine) +
+  geom_point(aes(x = as.Date(DateTimePST), y = FinalQ, color = Site_ID), size = 3) +
+  ylab("Discharge (m^3/s)") +
+  xlab("Date") +
+  facet_wrap(~Site_ID, scales = "free") +
+  theme_bw() 
+  
+
+ggsave("Q.figure.pdf",
+       path = ("~/Volumes/sbr_sfa/RC3/00_Schneider_Springs_Fire_2023/SSF_Data_Processing/codes"),
+       width = 10, height = 8, units = "in")
+
+
+ggplot(combine) +
+  geom_point(aes(x = as.Date(DateTimePST), y = FinalQ, color = Site_ID), size = 3) +
+  ylab("Discharge (m^3/s)") +
+  xlab("Date") +
+  theme_bw() 
+
+# Plot cross section depth
+ggplot(Q) +
+  geom_point(aes(x = Point, y = Water_Depth_cm)) +
+  geom_hline(yintercept = 0, color = "blue") +
+  scale_y_reverse() +
+  theme_bw()
+
+# Liters per second
+combine$FinalQ*1000 # 31.65869
+
+# cfs 
+combine$FinalQ*35.314666212661 # 1.118016
+
+
+```
+
+
+
+
+
+
+# old script #
+```{r}
+S02 <- filter(Q, Site_ID == "S02" & Start_Time == "7:45")
+
+# Concatenate date & time
+S02$DateTimePST <- as.POSIXct(paste(S02$Date, S02$Start_Time), format = "%Y-%m-%d %H:%M")
+
+S02 <- S02 %>% 
+  mutate(VeloMean = rowMeans(select(., starts_with("Velocity")), na.rm = TRUE),
+         VeloMeanPoints = rollapply(VeloMean, 2, mean, align = 'right', fill = NA),
+         DistDiff = rollapply(Distance_cm, 2, diff, align = 'right', fill = NA),
+        
+         DepthMean = rollapply(Water_Depth_cm, 2, mean, align = 'right', fill = NA),
+         TransectQ = ((DistDiff * DepthMean)/10000) * (VeloMeanPoints * 1000),
+         FinalQ = sum(TransectQ, na.rm = TRUE))
+
+
+```
+
+
