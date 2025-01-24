@@ -1,0 +1,659 @@
+---
+title: "PRT_EXO_Watersheds_BS"
+output: html_document
+date: "2024-11-21"
+editor_options: 
+  chunk_output_type: console
+---
+
+The purpose of this script is to calculate burn severity using mean dNBR for each watershed where EXOs are installed. 
+
+Script Workflow:
+
+Step 1)
+
+Step 2) 
+
+Step 3) 
+
+
+# Status: in progress
+
+# ==============================================================================
+# Author: Jake Cavaiani; jake.cavaiani@pnnl.gov 
+# 21 November 2024
+# ==============================================================================
+
+## Load packages and set working directory
+```{r Jake/Mac}
+#for Jake/mac
+
+rm(list=ls(all=T)) #this clears your Environment
+
+# Load the packages
+library(ggplot2)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(dplyr)
+library(here)
+library(nhdplusTools)
+library(furrr)
+library(readr)
+library(raster)
+library(exactextractr)
+library(purrr)
+library(stringr)
+library(forcats)
+library(lwgeom)
+```
+
+
+```{r Plot Yakima River Basin with Retreat Fire}
+
+# Load your local shapefile (replace with your file path)
+retreat_shape <- st_read(here("Retreat_Fire_2024", "inputs", "shape_files", "Retreat_Fire.shp"))
+
+ggplot(data = retreat_shape) +
+  geom_sf(fill = "transparent", color = "red") # Overlay the shapefile
+
+# Plot Yakima River Basin (YRB)
+yakima_shape <- st_read(here("Yakima_River_Basin_shape_files", "Yakima_River_Basin.shp"))
+
+ggplot(data = yakima_shape) +
+  geom_sf(fill = "lightblue", color = "black") +  # Plot Yakima River Basin
+  geom_sf(data = retreat_shape, fill = "transparent", color = "red") + # Overlay the shapefile
+  theme_bw()
+
+```
+
+# Burn Severity 
+# Convert crs function 
+```{r crs function}
+convert_crs <- function (input, goal, type = "numeric", res = NULL) 
+{
+    stopifnot(class(input)[1] %in% c("sf", "RasterLayer"), class(goal)[1] %in% 
+        c("sf", "RasterLayer"), type %in% c("numeric", "categorical"))
+    if (raster::compareCRS(goal, input) == T) {
+        message("CRS already matches that of your goal object")
+        return(input)
+    }
+    else {
+        if (class(input)[1] == "RasterLayer") {
+            if (is.null(res)) {
+                if (class(goal)[1] == "RasterLayer") {
+                  res <- terra::res(goal)[1]
+                }
+                else {
+                  unit <- sf::st_crs(goal, parameters = TRUE)$units_gdal
+                  res <- ifelse(unit == "degree", 0.0003280119, 
+                    30)
+                }
+            }
+            method <- ifelse(type == "numeric", "bilinear", "ngb")
+            input_prj <- raster::projectRaster(input, crs = raster::crs(goal), 
+                method = method, res = res)
+        }
+        else {
+            input_prj <- sf::st_transform(input, raster::crs(goal))
+        }
+        return(input_prj)
+    }
+}
+
+```
+
+# Function to clip raster to a shapefile 
+```{r function}
+# This function will ensure the projection is the same between the raster the shapefile and then clip the raster to the basin boundry. It can return a raster (for further analysis) or a dataframe (for plotting)
+
+#' @param raster the raster you want to clip
+#' @param sf the shapefile you want to use to clip the raster
+#' @param type either 'numeric' or 'categorical' depending on if your raster is discrete or continuous values
+#' @param res the resolution of the projected raster, if not specified with default to 30m
+#' @param return either 'df' or 'raster' to specify the form of the returned raster
+#'
+#' @return if 'return' is df it will return the raster as a dataframe suitable 
+#' for plotting in ggplot2. If 'return' is raster it will return the raster as a rasterLayer object
+
+clean_raster <- function (raster, sf, type = "numeric", 
+                            res = NULL, return = "df") {stopifnot(class(raster) == "RasterLayer", class(sf)[1] == 
+                c("sf"), type %in% c("numeric", "categorical"), return %in% 
+                c("df", "raster"))
+    unit <- sf::st_crs(sf, parameters = TRUE)$units_gdal
+    buffer <- ifelse(unit == "degree", 0.1, 5000)
+    res <- ifelse(unit == "degree", 0.0003280119, 30)
+    method <- ifelse(type == "numeric", "bilinear", "ngb")
+    if (compareCRS(raster, sf) == T) {
+      raster_crop <- raster::crop(raster, sf)
+      raster_crop <- raster::mask(raster_crop, sf)
+      raster_df <- as.data.frame(raster::rasterToPoints(raster_crop))
+      colnames(raster_df) <- c("x", "y", "val")
+    }
+    else {
+      sf_prj <- convert_crs(sf::st_buffer(sf, dist = buffer), 
+                            raster)
+      raster_crop <- raster::crop(raster, sf_prj)
+      raster_crop <- raster::mask(raster_crop, sf_prj)
+      raster_prj <- raster::projectRaster(raster_crop, crs = crs(sf), 
+                                          method = method, res = res)
+      raster_crop <- raster::crop(raster_prj, sf)
+      raster_crop <- raster::mask(raster_crop, sf)
+      raster_df <- as.data.frame(raster::rasterToPoints(raster_crop))
+      colnames(raster_df) <- c("x", "y", "val")
+    }
+    if (return == "df") {
+      raster_df
+    }
+    else {
+      raster_crop
+    }
+} 
+
+```
+
+# Oak Creek - EXO sites
+```{r}
+# Read in watershed shape file
+PRT_EXO_shape <- st_read(here("Retreat_Fire_2024", "output_for_analysis", "02_Retreat_Fire_Site_Selection", "EXO_sites_Oak_Creek.shp")) 
+
+# Read in Retreat fire 
+retreat_shape <- read_sf(here("Retreat_Fire_2024", "inputs", "shape_files", "Retreat_Fire.shp"))
+
+retreat_shape <- st_zm(retreat_shape)
+
+# Plot fire shape file 
+ggplot(data = retreat_shape) +
+  geom_sf(aes(fill = "red")) +
+  theme_minimal()
+
+# plot on top of each other 
+ggplot() +
+  geom_sf(data = PRT_EXO_shape, fill = "#56B4E9", alpha = 0.2, color = "black") +
+  geom_sf(data = retreat_shape, fill = "red", alpha = 0.2, color = "black") +
+  theme_minimal()
+
+# Pull the dnbrs for the Retreat Fire
+retreat_dnbr <- raster(here("Retreat_Fire_2024", "inputs", "shape_files", "dNBR_RetreatFire.tif"))
+
+# # Clip data to the watershed
+dnbr <- clean_raster(retreat_dnbr, retreat_shape, type = "numeric", return="raster")
+plot(dnbr) #use to make sure it's doing what you expect
+
+```
+
+# Watershed DNBR values
+```{r for loop}
+# Define the fire thresholds for burn severity
+Fire_thresholds <- tibble(
+  zone = c(1:5),
+  min = c(-100, 100, 270, 440, 660),
+  max = c(99, 269, 439, 659, 1300),
+  fire_name = "retreat_fire",
+  burn_severity = c("Unburned", "Low", "Moderate_Low", "Moderate_High", "High")
+)
+
+# Read the EXO_sites_Oak_Creek.shp file with multiple sites
+PRT_EXO_shape <- st_read(here("Retreat_Fire_2024", "output_for_analysis", "02_Retreat_Fire_Site_Selection", "EXO_sites_Oak_Creek.shp"))
+
+# List of unique site names within Oak_Creek_tribs.shp
+site_names <- unique(PRT_EXO_shape$site)
+
+# Initialize empty results dataframe
+PRT_EXO_results <- tibble(site = character(), 
+                                  mean_dnbr = numeric(), 
+                                  burn_severity = character())
+
+# Define directory for the plots
+output_directory <- here("Retreat_Fire_2024", "plots", "burn_severity/")
+
+# Loop through each site within Oak_Creek_tribs.shp
+for (site_name in site_names) {
+  
+  # Filter the shapefile by site
+  site_shape <- PRT_EXO_shape %>%
+    filter(site == site_name)
+
+
+  # Plot to verify filtering
+  ggplot() +
+    geom_sf(data = site_shape, fill = "#56B4E9", alpha = 0.2, color = "black") +
+    theme_minimal()
+  
+  # Clean and clip raster to the site boundary
+  basin_dnbr <- clean_raster(dnbr, site_shape, type = "numeric", return = "raster")
+  
+  # Plot to verify clipping
+  png(filename = paste0(output_directory, site_name, "_clipping_plot.png"))
+  plot(basin_dnbr, main = paste("dNBR for Site:", site_name))
+  dev.off()
+  
+  # Check and transform CRS if necessary
+  if (compareCRS(dnbr, site_shape) == FALSE) {
+    site_shape <- st_transform(site_shape, crs(dnbr))
+  }
+  
+  # Extract mean dNBR for the site
+  mean_dnbr <- exactextractr::exact_extract(dnbr, site_shape, "mean", progress = FALSE)
+  
+  # Categorize the mean dNBR based on fire thresholds
+  burn_severity <- Fire_thresholds %>%
+    filter(min <= mean_dnbr & max >= mean_dnbr) %>%
+    dplyr::select(burn_severity) %>%
+    pull()
+  
+  # Append the results to the results dataframe
+  PRT_EXO_results <- PRT_EXO_results %>%
+    add_row(site = site_name, 
+            mean_dnbr = mean_dnbr, 
+            burn_severity = burn_severity)
+}
+
+# View the final results
+PRT_EXO_results
+
+write_csv(PRT_EXO_results, here("Retreat_Fire_2024", "output_for_analysis", "01_Identify_impacted_watersheds", "PRT_EXO_dNBR.csv"))
+
+```
+
+
+
+
+
+
+
+############################# SCRIPT GRAVEYARD ##############################################
+
+
+
+###### PULL HUC shape file for Oak Creek ######
+```{r Jake/Mac}
+#for Jake/mac
+
+rm(list=ls(all=T)) #this clears your Environment
+
+# Load the packages
+library(ggplot2)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(dplyr)
+library(here)
+library(nhdplusTools)
+library(furrr)
+
+```
+
+```{r Plot Yakima River Basin with Retreat Fire}
+# Load your local shapefile (replace with your file path)
+retreat_shape <- st_read(here("Fires_2024", "Retreat_Fire", "Retreat_Fire.shp"))
+
+ggplot(data = retreat_shape) +
+  geom_sf(fill = "transparent", color = "red") # Overlay the shapefile
+
+
+# Reading in data package data of coordinates of all of our sites
+oak_creek_coords <- read_csv(here("Fires_2024", "Retreat_Fire", "site_selection", "initial_search",
+                                  "oak_creek_precip_gage_comp.csv"))
+
+# Converting to a sf object
+oak_creek_coords <- oak_creek_coords %>%
+  st_as_sf(coords = c("longitude", "latitude"), crs = 4326)
+  # dplyr::select(Site_ID, COMID, geometry) %>% 
+  # dplyr::mutate(usgs_id = NA) %>% 
+  # filter(COMID != -9999)
+
+# Pull HUCs by site_id
+pull_huc10 <- function(i){
+  
+  x <- oak_creek_coords %>% slice(i)
+  
+  get_huc(AOI = x, 
+          type = "huc10") %>% 
+    mutate(site = x$site) %>% 
+    dplyr::select(huc10, 
+           site)
+}
+
+## Pull HUC12s for all sites
+hucs_by_site <- 1:nrow(oak_creek_coords) %>% 
+  future_map(pull_huc10) %>% 
+  bind_rows()
+
+
+unique_hucs <- hucs_by_site %>% 
+  distinct(huc10, .keep_all = TRUE)
+
+
+# Plot the flowlines using ggplot2
+ggplot() +
+  geom_sf(data = unique_hucs, fill = "lightblue", alpha = 0.25, color = "black") +
+  # geom_sf(data = flowlines, color = "blue", size = 1) +
+  geom_sf(data = retreat_shape, fill = "red", alpha = 0.5) +
+  theme_bw() +
+  labs(title = "Flowlines with HUCs that intersect the Retreat Fire",
+       x = "Longitude",
+       y = "Latitude")
+
+oak_creek_shape <- unique_hucs %>% 
+  filter(site == "Oak_Creek")
+  
+# Export to a shapefile
+st_write(oak_creek_shape, "~/GitHub/rc_sfa-fire-watch/Fires_2024/Retreat_Fire/site_selection/initial_search/oak_creek_shapefile.shp", driver = "ESRI Shapefile")
+
+```
+
+
+# Tieton Tribs
+```{r}
+# Read in watershed shape file
+tieton_tribs_shape <- st_read(here("Retreat_Fire_2024", "output_for_analysis", "02_Retreat_Fire_Site_Selection", "Tieton_tribs.shp")) 
+
+# Read in pole creek fire 
+retreat_shape <- read_sf(here("Retreat_Fire_2024", "inputs", "shape_files", "Retreat_Fire.shp"))
+
+retreat_shape <- st_zm(retreat_shape)
+
+# Plot fire shape file 
+ggplot(data = retreat_shape) +
+  geom_sf(aes(fill = "red")) +
+  theme_minimal()
+
+# plot on top of each other 
+ggplot() +
+  geom_sf(data = tieton_tribs_shape, fill = "#56B4E9", alpha = 0.2, color = "black") +
+  geom_sf(data = retreat_shape, fill = "red", alpha = 0.2, color = "black") +
+  theme_minimal()
+
+# 
+ggsave("Tieton_tribs.pdf",
+  plot = last_plot(),
+  path = here("Retreat_Fire_2024", "plots", "watersheds"),
+  width = 6, 
+  height = 8,
+)
+
+# Pull the dnbrs for the Retreat Fire
+retreat_dnbr <- raster(here("Retreat_Fire_2024", "inputs", "shape_files", "dNBR_RetreatFire.tif"))
+
+# # Clip data to the watershed
+dnbr <- clean_raster(retreat_dnbr, retreat_shape, type = "numeric", return="raster")
+plot(dnbr) #use to make sure it's doing what you expect
+
+```
+
+# Watershed DNBR values - Tieton tribs
+```{r for loop}
+# Define the fire thresholds for burn severity
+Fire_thresholds <- tibble(
+  zone = c(1:5),
+  min = c(-100, 100, 270, 440, 660),
+  max = c(99, 269, 439, 659, 1300),
+  fire_name = "retreat_fire",
+  burn_severity = c("Unburned", "Low", "Moderate_Low", "Moderate_High", "High")
+)
+
+# Read the Tieton_tribs.shp file with multiple sites
+tieton_tribs_shape <- st_read(here("Retreat_Fire_2024", "output_for_analysis", "02_Retreat_Fire_Site_Selection", "Tieton_tribs.shp")) 
+
+# List of unique site names within Oak_Creek_tribs.shp
+site_names <- unique(tieton_tribs_shape$site)
+
+# Initialize empty results dataframe
+tieton_tribs_results <- tibble(site = character(), 
+                                  mean_dnbr = numeric(), 
+                                  burn_severity = character())
+
+# Define directory for the plots
+output_directory <- here("Retreat_Fire_2024", "plots", "burn_severity/")
+
+# Loop through each site within Oak_Creek_tribs.shp
+for (site_name in site_names) {
+  
+  # Filter the shapefile by site
+  site_shape <- tieton_tribs_shape %>%
+    filter(site == site_name)
+
+
+  # Plot to verify filtering
+  ggplot() +
+    geom_sf(data = site_shape, fill = "#56B4E9", alpha = 0.2, color = "black") +
+    theme_minimal()
+  
+  # Clean and clip raster to the site boundary
+  basin_dnbr <- clean_raster(dnbr, site_shape, type = "numeric", return = "raster")
+  
+  # Plot to verify clipping
+  png(filename = paste0(output_directory, site_name, "_clipping_plot.png"))
+  plot(basin_dnbr, main = paste("dNBR for Site:", site_name))
+  dev.off()
+  
+  # Check and transform CRS if necessary
+  if (compareCRS(dnbr, site_shape) == FALSE) {
+    site_shape <- st_transform(site_shape, crs(dnbr))
+  }
+  
+  # Extract mean dNBR for the site
+  mean_dnbr <- exactextractr::exact_extract(dnbr, site_shape, "mean", progress = FALSE)
+  
+  # Categorize the mean dNBR based on fire thresholds
+  burn_severity <- Fire_thresholds %>%
+    filter(min <= mean_dnbr & max >= mean_dnbr) %>%
+    dplyr::select(burn_severity) %>%
+    pull()
+  
+  # Append the results to the results dataframe
+  tieton_tribs_results <- tieton_tribs_results %>%
+    add_row(site = site_name, 
+            mean_dnbr = mean_dnbr, 
+            burn_severity = burn_severity)
+}
+
+# View the final results
+tieton_tribs_results
+
+write_csv(tieton_tribs_results, here("Retreat_Fire_2024", "output_for_analysis", "01_Identify_impacted_watersheds", "tieton_tribs_dNBR.csv"))
+
+
+# ak_Creek_tribs_geospatial <- read_csv("Retreat_Fire_2024/output_for_analysis/02_Retreat_Fire_Site_Selection/Oak_Creek_tribs_geospatial.csv")
+
+
+```
+
+
+```{r pulling SFA site info and getting HUCs}
+# Reading in data package data of coordinates of all of our sites
+prt_coords <- read_csv(here("RCSFA_Geospatial_Site_Info", "v3_RCSFA_Geospatial_Site_Information.csv"))
+
+# Adding North Fork Cowiche Creek because it is another HUC in the Retreat Fire perimeter
+new_row <- tibble(
+  Site_ID = "North_Fork_Cowiche_Creek",
+  Latitude = 46.701784,
+  Longitude = -120.858173,
+  COMID = 24423497
+)
+
+# Add the new row to the existing dataframe
+sfa_coords <- bind_rows(sfa_coords, new_row)
+
+
+# Converting to a sf object
+sfa_coords <- sfa_coords %>%
+  st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326) %>% 
+  dplyr::select(Site_ID, COMID, geometry) %>% 
+  dplyr::mutate(usgs_id = NA) %>% 
+  filter(COMID != -9999)
+
+
+
+sfa_coords_filter <- sfa_coords %>% 
+  filter(Site_ID %in% c("S49R", "S50P", "S55", "S56", "S65", "North_Fork_Cowiche_Creek"))
+
+# Pull HUCs by site_id
+pull_huc12 <- function(i){
+  
+  x <- sfa_coords %>% slice(i)
+  
+  get_huc(AOI = x, 
+          type = "huc12") %>% 
+    mutate(Site_ID = x$Site_ID) %>% 
+    dplyr::select(huc12, 
+           Site_ID)
+}
+
+## Pull HUC12s for all sites
+hucs_by_site <- 1:nrow(sfa_coords) %>% 
+  future_map(pull_huc12) %>% 
+  bind_rows()
+
+## From 328 sites to 184 unique HUC8s
+## From 328 sites to 242 unique HUC12s
+unique_hucs <- hucs_by_site %>% 
+  distinct(huc12, .keep_all = TRUE)
+
+# Peter code
+# Find HUCs that intersect with fire 
+
+# interesect_huc_and_fire <- function(i){
+# 
+#   huc <- unique_hucs %>% slice(i)
+# 
+#   st_intersection(huc, retreat_shape) %>%
+#     st_drop_geometry() %>%
+#     mutate(huc12 = huc$huc12) %>%
+#     select(fire_id, huc12)
+# }
+# 
+# # 1-10
+# hucs_and_mtbs <- 1:10 %>%
+#   #1 %>%
+#   future_map(interesect_huc_and_fire) %>%
+#   bind_rows()
+# 
+# write_csv(hucs_and_mtbs, "data/240801_intersecting_hucs_and_mtbs_1-50.csv")
+
+# # Find HUCs that intersect with fire 
+hucs_fire_intersection <- st_intersection(unique_hucs, retreat_shape)
+
+hucs_intersected <- unique_hucs[st_intersects(unique_hucs, retreat_shape, sparse = FALSE), ]
+
+# Write the sf object to a shapefile
+st_write(hucs_intersected, here("Retreat_Fire_2024", "output_for_analysis", "01_Identify_impacted_watersheds", "intersected_watersheds.shp"))
+
+intersected_hucs_df <- as.data.frame(hucs_intersected)
+
+intersected_hucs_df <- intersected_hucs_df %>% 
+  mutate(huc12 = as.numeric(huc12))
+
+# Plot HUCS that intersect with fire perimeter 
+ggplot() +
+  geom_sf(data = hucs_intersected, fill = "lightblue", alpha = 0.25, color = "darkblue") +
+  geom_sf(data = retreat_shape, fill = "red", alpha = 0.5) +
+  theme_minimal() +
+  labs(title = "HUCs Intersecting with Fire Perimeter",
+       x = "Longitude",
+       y = "Latitude")
+
+# Get spatial data with associated comids
+# Define your COMIDs of interest
+comids <- sfa_coords_filter %>% 
+  pull(COMID)
+# comids <- c(24423233, 24422713, 24423517, 24424705)  # S49R, S50P, S55, S65
+
+# Get the flowline data for the specified COMIDs
+flowlines <- get_nhdplus(comid = comids, realization = "flowline")
+
+# Plot the flowlines using ggplot2
+ggplot() +
+  geom_sf(data = hucs_intersected, fill = "lightblue", alpha = 0.25, color = "black") +
+  geom_sf(data = flowlines, color = "blue", size = 1) +
+  geom_sf(data = retreat_shape, fill = "red", alpha = 0.5) +
+  theme_bw() +
+  labs(title = "Flowlines with HUCs that intersect the Retreat Fire",
+       x = "Longitude",
+       y = "Latitude")
+
+# Pull the comid from the flowlines closest to the site
+site_comid <- flowlines %>% 
+  slice(st_nearest_feature(hucs_intersected))
+
+# Pull comids inside fire
+fire_flowlines <- st_intersection(retreat_shape, flowlines)
+
+# TEST SUBSET FlOWLINES
+# # Subset flowlines to everything upstream of site_comid
+# upstream_flowlines <- flowlines %>%
+#     filter(comid %in% get_UT(flowlines, comid = site_comid %>% pull(comid)))
+
+upstream_flowlines <- get_UT(flowlines, comids)
+
+upstream_flowlines <- get_nhdplus(comid = upstream_flowlines, realization = "flowline")
+
+
+
+# Plot the flowlines using ggplot2
+ggplot() +
+  geom_sf(data = hucs_intersected, fill = "lightblue", alpha = 0.25, color = "black") +
+  geom_sf(data = flowlines, color = "blue", size = 1) +
+  geom_sf(data = upstream_flowlines, color = "green", size = 1) +
+  geom_sf(data = retreat_shape, fill = "red", alpha = 0.5) +
+  theme_bw() +
+  labs(title = "Flowlines with HUCs that intersect the Retreat Fire",
+       x = "Longitude",
+       y = "Latitude")
+
+```
+
+# Individual watershed test
+```{r Clint Canyon}
+# Read in watershed shape file
+clint_shape <- st_read(here("Retreat_Fire_2024", "output_for_analysis", "02_Retreat_Fire_Site_Selection", "Oak_Creek_tribs.shp")) %>% 
+  filter(site == "Clint Canyon")
+
+# plot to make sure this is correct
+ggplot() +
+  geom_sf(data = clint_shape, fill = "#56B4E9", alpha = 0.2, color = "black") +
+  theme_minimal()
+
+basin_dnbr <- clean_raster(dnbr, clint_shape,  type = "numeric", return="raster")
+plot(basin_dnbr) #use to make sure it's doing what you expect
+
+# make sure basin and fire layer are the same projection
+if(compareCRS(dnbr, clint_shape) == F){
+      basin_pj <- st_transform(clint_shape, crs(dnbr))}else{
+        basin_pj <- clint_shape
+      }
+
+#extract data
+mean_dnbr <- exactextractr::exact_extract(dnbr,basin_pj, "mean", 
+                                           progress=F) 
+
+# Clint Canyon mean dNBR  - 207.204971313477
+
+Fire_thresholds <- tibble(
+  zone = c(1:5),
+  min = c(-100, 100, 270, 440, 660),
+  max = c(99, 269, 439, 659, 1300),
+  fire_name = ("retreat_fire"),
+  burn_severity = c("Unburned", "Low", "Moderate_Low", "Moderate_High", "High")
+)
+
+# Create a results column based on the ranges
+result <- Fire_thresholds %>%
+  filter(min <= mean_dnbr & max >= mean_dnbr) %>%
+  dplyr::select(burn_severity) %>%
+  pull()
+
+# data frame: 
+# Categorize mean values based on the ranges
+df_results <- df_sites %>%
+  rowwise() %>%
+  mutate(category = df_ranges %>%
+                     filter(min_value <= mean_value & max_value >= mean_value) %>%
+                     select(category) %>%
+                     pull())
+
+
+```
+
+

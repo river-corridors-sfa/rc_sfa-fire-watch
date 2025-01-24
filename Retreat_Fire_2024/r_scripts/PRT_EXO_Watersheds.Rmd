@@ -1,0 +1,248 @@
+---
+title: "Retreat_Fire_EXO_Watersheds_BS"
+output: html_document
+date: "2024-11-21"
+---
+
+The purpose of this script is to generate the watershed shape files for EXO locations 
+
+
+# Status: in progress
+
+# ==============================================================================
+# Author: Kathryn Willi & Matthew R. V. Ross: https://doi.org/10.5281/zenodo.8140272
+
+# Adapted by Jake Cavaiani for site selection for the Retreat Fire (2024)
+
+# 21 November 2024
+# ==============================================================================
+
+
+```{r setup, include=TRUE, echo = T, warning = F, comment = F, message = FALSE}
+rm(list = ls())
+library(sf)
+library(tidyverse)
+library(terra)
+library(nhdplusTools)
+library(mapview)
+library(dataRetrieval)
+library(lubridate)
+library(prism)
+library(ggspatial)
+library(nngeo)# Added from original code
+library(stars)# Added from original code
+library(here)
+library(webshot)
+here()
+# this gives you an error, but it can be ignored:
+try(plyr::ldply(list.files(path = here("geospatial_data_functions", "src"),
+                           pattern="*.R",
+                           full.names=TRUE),
+                source))
+# Rmarkdown options
+knitr::opts_chunk$set(echo = T, warning = F, comment = F, message = F)
+
+# mapview options
+mapviewOptions(basemaps.color.shuffle=FALSE,basemaps='OpenTopoMap')
+
+```
+
+### Setting up your site data set.
+
+For this code to run properly, your site data must be configured as follows:
+
+1)  Each site is identified with a unique site name. In the data set, this column must be called `site`.
+2)  Each site has coordinates, with column names `longitude` and `latitude`. Knowledge of coordinate projection required. **OR:**
+    Each site has their known COMID, with column name `comid`. 
+4)  Site data table is a CSV, and stored in the `data/` folder. 
+
+I have included an example data set called `placeholder.csv`, along with all of the additional data sets necessary for the code to run, stored in the `data` folder. 
+
+#### Downloading necessary data sets
+
+Currently, this workflow requires downloading several data sets locally for much speedier run times. This includes: PRISM climate & aridity rasters, NHD flow direction data, and CONUS-wide NHD catchments. All data sets are found in the shared `data` folder.
+
+### Site data assumptions.
+
+This analysis is only appropriate for locations along adequately-sized streams. Some streams are too small to be captured by NHDPlusV2; it is also common for coordinates to fall in the wrong catchment (especially for big rivers). For that reason, review each site and make sure that the NHD feature attributes were appropriately captured.
+
+# National Hydrodraphy Dataset (NHD) data extraction
+
+Identify each sample's NHD COMID. This COMID will allow site linkages with all datasets in this workflow. If COMID is already listed in the CSV, make `site_type = "comid"`.
+
+```{r}
+sf_use_s2(FALSE)
+
+site_type = "xy" # OR site_type = "comid"
+
+sites <- read_csv("~/Documents/ST1/Retreat_Fire/site_selection/Final_EXO_Deployment.csv") %>%
+  distinct(site, .keep_all = TRUE) %>%
+  dplyr::select('site','latitude','longitude') %>% 
+  drop_na() # THIS IS A LOCAL FILE. CHANGE TO METADATA FOR COORDINATES WHEN AVAILABLE.
+
+```
+
+Additional steps for sites with coordinates, and no COMID:
+
+```{r}
+if(site_type == "xy"){
+  sites <- sites %>%
+    dplyr::select(site, latitude, longitude) %>% 
+    sf::st_as_sf(coords = c("longitude","latitude"), crs = 4269) # 4269 = NAD83 CRS
+  
+  if(sf::st_crs(sites) != sf::st_crs(4269)){
+    sites <- sites %>% st_transform(., crs = 4269)
+  }
+  
+  mapview(sites)
+}
+```
+
+Pull all meta data associated with each site's COMID. 
+
+```{r}
+
+if(site_type == "xy"){
+  sites <- getNHDxy(df = sites)
+}
+
+```
+
+Make NHD-based watershed shapefiles for all CONUS sites. To make this step MUCH faster, it is best to have a locally downloaded version on the National NHD catchment shapefile stored on your local system. I have already included this shapefile in the `data` folder. 
+
+```{r}
+site_watersheds <- getWatersheds(df = sites, make_pretty = TRUE) %>%
+  inner_join(., dplyr::select(sf::st_drop_geometry(sites), site, comid), by = "comid")
+
+# Write the sf object to a shapefile for Oak Creek Tribs
+st_write(site_watersheds, here("Retreat_Fire_2024", "output_for_analysis", "02_Retreat_Fire_Site_Selection", "EXO_sites_Oak_Creek.shp"))
+
+# Export geospatial data for Oak Creek Tribs
+write_csv(sites, here("Retreat_Fire_2024", "output_for_analysis", "02_Retreat_Fire_Site_Selection", "EXO_sites_Oak_Creek_geospatial.csv"))
+
+```
+
+Ensure that each site is accurately represented by the NHD (some locations may be located on streams that are too small to be captured by the NHD, others may have coordinates that are slightly off, potentially placing them in the wrong catchment). Here, we create simple maps of each watershed, to determine if the delineated watershed/NHD attributes are appropriate. This can take a while depending on how many sites you are doing this for. Maps are automatically stored in the `data/maps/` folder. It is highly recommended to review each map, particularly for known locations along BIG rivers and TINY streams.
+
+```{r}
+map2(sites$site, sites$comid, getMaps) 
+```
+
+Interactive map showing all sites and their delineated watersheds:
+
+```{r}
+mapview(site_watersheds, col.regions = "#56B4E9", alpha.regions = 0.2, lwd = 3, layer.name = "Watershed") +
+  mapview(sites, cex = 5, col.regions = "black", layer.name = "Points") + 
+  mapview(st_read('~/GitHub/rc_sfa-fire-watch/geospatial_data_functions/src/site_flowlines.gpkg', quiet = T), lwd = 3, color = "red", layer.name = "Flowline")
+```
+
+
+
+
+################################### SCRIPT GRAVEYARD #######################################
+# Export Flowlines for Xia/Etienne
+```{r}
+# Trying to export flowlines out to be able to read in QGIS
+flowlines <- get_nhdplus(comid = sites$comid, streamorder = 5)
+st_write(flowlines, "~/GitHub/rc_sfa-fire-watch/Retreat_Fire_2024/output_for_analysis/02_Retreat_Fire_Site_Selection/flowlines_shapefile.shp")
+
+# Brie Method
+common_crs <- 4326
+PRT_boundary <- read_sf("~/GitHub/rc_sfa-fire-watch/Retreat_Fire_2024/output_for_analysis/02_Retreat_Fire_Site_Selection/EXO_sites_Oak_Creek.shp") %>% 
+  st_transform(common_crs)
+
+PRT_flowlines <- get_nhdplus(comid = PRT_boundary$comid, streamorder = 3)
+
+st_write(PRT_flowlines, "~/GitHub/rc_sfa-fire-watch/Retreat_Fire_2024/output_for_analysis/02_Retreat_Fire_Site_Selection/PRT_flowlines.shp")
+
+
+
+# CHAT 
+# Assuming your sf object is called PRT_boundary
+
+flowlines_list <- lapply(PRT_boundary$geometry, function(geom) {
+  get_nhdplus(AOI = geom, streamorder = 3)
+})
+
+# Combine the resulting flowlines into a single data frame
+PRT_flowlines <- do.call(rbind, flowlines_list)
+
+# Convert to sf object if needed
+PRT_flowlines_sf <- st_as_sf(PRT_flowlines)
+
+# Check the result
+print(PRT_flowlines_sf)
+
+# TAKE TWO #
+flowlines_list <- lapply(PRT_boundary$geometry, function(geom) {
+  # Create a temporary sf object for each geometry
+  temp_sf <- st_sf(geometry = st_sfc(geom))
+  
+  # Call get_nhdplus on the temporary sf object
+  get_nhdplus(AOI = temp_sf, streamorder = 3)
+})
+
+# Combine the resulting flowlines into a single data frame
+PRT_flowlines <- do.call(rbind, flowlines_list)
+
+# Convert to sf object if needed
+PRT_flowlines_sf <- st_as_sf(PRT_flowlines)
+
+# Check the result
+print(PRT_flowlines_sf)
+
+```
+
+```{r noncat,echo = T, warning = FALSE, comment = F, message = FALSE, results='hide'}
+# # Extract the mean aridity index within each site's watershed as well as each site's location
+# arid <- getAridity(df = sites, sf = site_watersheds) #.tif doesn't exist 
+# sites <- getAridity(df = sites, sf = site_watersheds)
+# 
+# # Extract Omernik ecoregion for each site's location
+# sites <- getOmernikSite(df = sites)
+# 
+# # Extract dominant Omernik ecoregion within each site's watershed
+# sites <- getOmernikWs(df = sites, sf = site_watersheds)
+# 
+# # Extract PRSIM ppt, tmean, tmax, and tmin data for each site's location
+# sites_prism <- getPRISM(df = sites)
+# 
+# # # Extract mean chemistry values within each site's watershed as well as each site's location
+# # sites <- getChemistry(df = sites, sf = site_watersheds)
+# 
+# # Link to original NPP data set:
+# # https://lpdaac.usgs.gov/products/mod17a3hgfv006/ "Terra MODIS Net Primary Production Yearly L4 Global 500 m SIN Grid products are currently unavailable due to unexpected errors in the input data. Please note that a newer version of MODIS land products is available and plans are being developed for the retirement of Version 6 MODIS data products. Users are advised to transition to the improved Version 6.1 products as soon as possible."
+```
+
+```{r filter watershed characteristics to Schneider Springs site selection data frame}
+
+# output_file <- sites %>% 
+#   dplyr::select(site, comid, geometry, streamorde, slope, totdasqkm, maxelevraw)
+
+```
+
+
+### ONLY IF NEEDED View sites and adjacent COMIDs ####
+
+If after reviewing the delineated watersheds you have found that some site coordinates place that location in the wrong catchment, we will need to explore that site's nearby catchments to link it to the correct COMID:
+
+```{r}
+# sus_points <- sites
+#   # Comment the line below if you want to remove some sites:
+#   # %>%
+#   #filter(site %in% c("site_name","sine_name2"))
+# 
+# sus_nhd <- sus_points %>%
+#   sf::st_buffer(., dist = 0.01) %>%
+#   sus_mapper(.)
+# 
+# 
+# mapview(sus_nhd[[2]], col.regions = "#56B4E9", alpha.regions = 0.4, legend = FALSE) +
+#  # mapview(sbux_sf, cex = 5, col.regions = "red", legend = FALSE) +
+#   mapview(sus_points, cex = 5, col.regions = "black", legend = FALSE) +
+#   mapview(sus_nhd[[1]], lwd = 1.5, color = "red", legend = FALSE)
+# 
+# # Adjacent COMID: 24423499
+
+```
+
