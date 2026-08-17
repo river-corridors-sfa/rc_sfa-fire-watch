@@ -31,21 +31,24 @@ Step 3)
 rm(list=ls(all=T)) #this clears your Environment
 
 # Load the packages
-library(ggplot2)
-library(sf)
-library(rnaturalearth)
-library(rnaturalearthdata)
-library(dplyr)
-library(here)
-library(nhdplusTools)
-library(furrr)
-library(readr)
-library(raster)
-library(exactextractr)
-library(purrr)
-library(stringr)
-library(forcats)
-library(lwgeom)
+library(pacman)
+p_load(tidyverse,
+       ggplot2,
+       sf, 
+       rnaturalearth,
+       rnaturalearthdata,
+       data.table,
+       here,
+       nhdplusTools,
+       furrr,
+       readr,
+       raster,
+       exactextractr,
+       purrr,
+       stringr,
+       forcats,
+       lwgeom)
+
 ```
 
 
@@ -202,10 +205,13 @@ site_names <- unique(PRT_EXO_shape$site)
 # Initialize empty results dataframe
 PRT_EXO_results <- tibble(site = character(), 
                                   mean_dnbr = numeric(), 
-                                  burn_severity = character())
+                                  burn_severity = character(),
+                                  percent_dnbr_660 = numeric())
 
 # Define directory for the plots
 output_directory <- here("Retreat_Fire_2024", "plots", "burn_severity/")
+
+## STOP HERE AND JUMP TO NEXT CHUNK IF YOU WANT TO DO THE DISTRIBUTION PLOTS ##
 
 # Loop through each site within Oak_Creek_tribs.shp
 for (site_name in site_names) {
@@ -257,7 +263,281 @@ write_csv(PRT_EXO_results, here("Retreat_Fire_2024", "output_for_analysis", "01_
 ```
 
 
+###### Burn Severity distribution for each watershed - as well as summary stats for each watershed
+```{r burn severity summary}
+# Create an empty dataframe to store burn severity percentages for all sites
+burn_severity_summary <- data.frame(site_name = character(),
+                                    burn_severity = character(),
+                                    percentage = numeric())
 
+# Test the for loop
+# site_names <- c("M02")
+
+# Loop through each site and compute burn severity percentages
+for (site_name in site_names) {
+  
+  # Filter the shapefile for the current site
+  site_shape <- PRT_EXO_shape %>%
+    filter(site == site_name)
+
+  # Check and transform CRS if necessary
+  if (!compareCRS(dnbr, site_shape)) {
+    site_shape <- st_transform(site_shape, crs(dnbr))
+  }
+
+  # Clip the raster to the site boundary
+  clipped_basin <- mask(dnbr, site_shape)          # Mask the raster using the site polygon
+  cropped_basin <- crop(clipped_basin, site_shape) # Crop the raster to minimize extent
+
+  # Extract pixel values from the clipped raster
+  pixel_values <- values(cropped_basin)            # Get raw pixel values
+  pixel_values <- pixel_values[!is.na(pixel_values)] # Remove NA values
+
+  # Calculate percentages for each burn severity category
+  severity_percentages <- Fire_thresholds %>%
+  rowwise() %>%
+  mutate(percentage = sum(pixel_values >= min & pixel_values <= max) / length(pixel_values) * 100) %>%
+  ungroup() %>%                                     # Ensure it's no longer grouped
+  mutate(site_name = site_name)                    # Add site name for identification
+
+
+
+  # Append to the summary dataframe
+  burn_severity_summary <- rbind(burn_severity_summary, severity_percentages)
+}
+
+# Create a grouped barplot with burn severity percentages for all sites
+stacked_barplot <- ggplot(burn_severity_summary, aes(x = site_name, y = percentage, fill = burn_severity)) +
+  geom_bar(stat = "identity", position = "stack") +  # Stacked bars
+  labs(title = "Percentage of Pixels by Burn Severity Across Sites",
+       x = "Site Name",
+       y = "Percentage (%)",
+       fill = "Burn Severity") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 12),  # Rotate site names for readability
+        axis.title = element_text(size = 14),                         # Adjust axis title sizes
+        legend.title = element_text(size = 12),                      # Adjust legend title size
+        legend.text = element_text(size = 10)) 
+
+# Save the barplot as a high-resolution JPG file
+jpeg(
+  filename = paste0(output_directory, "burn_severity_barplot.jpg"), 
+  width = 2400, height = 1800, res = 300
+)
+print(barplot)
+dev.off()
+
+```
+
+
+
+```{r burn severity distribution - % > 660}
+# Test the for loop
+# site_names <- c("M02")
+
+# Loop through each site and generate its plot with annotations
+for (site_name in site_names) {
+  
+  # Filter the shapefile for the current site
+  site_shape <- PRT_EXO_shape %>%
+    filter(site == site_name)
+
+  # Check and transform CRS if necessary
+  if (!compareCRS(dnbr, site_shape)) {
+    site_shape <- st_transform(site_shape, crs(dnbr))
+  }
+
+  # Clip the raster to the site boundary
+  clipped_basin <- mask(dnbr, site_shape)          # Mask the raster using the site polygon
+  cropped_basin <- crop(clipped_basin, site_shape) # Crop the raster to minimize extent
+
+  # Extract pixel values from the clipped raster
+  pixel_values <- values(cropped_basin)            # Get raw pixel values
+  pixel_values <- pixel_values[!is.na(pixel_values)] # Remove NA values
+
+  # Calculate mean dNBR value
+  mean_dnbr <- mean(pixel_values, na.rm = TRUE)
+
+  # Compute the percentage of pixels with dNBR >= 660
+  percent_dnbr_660 <- sum(pixel_values >= 660) / length(pixel_values) * 100
+
+  # Density plot for the individual site with annotation
+  density_plot <- ggplot(data.frame(pixel_values = pixel_values), aes(x = pixel_values)) +
+    geom_density(fill = "#0072B2", alpha = 0.5, color = "#0072B2", size = 0.8) +
+    geom_vline(aes(xintercept = mean_dnbr), color = "red", linetype = "dashed", size = 1) +
+    labs(title = paste("Pixel-wise dNBR Density for Site:", site_name), 
+         x = "dNBR Value", 
+         y = "Density",
+         caption = paste0("Mean dNBR: ", round(mean_dnbr, 2), 
+                          "\n% Pixels with dNBR >= 660: ", round(percent_dnbr_660, 2), "%")) +
+    theme_minimal()
+
+  # Save the density plot as a high-resolution JPG file
+  jpeg(
+    filename = paste0(output_directory, site_name, "_pixel_density.jpg"), 
+    width = 2400, height = 1800, res = 300 # High-resolution settings
+  )
+  print(density_plot)
+  dev.off()
+
+  # Append the results (including the percentage) to the results dataframe
+  PRT_EXO_results <- PRT_EXO_results %>%
+    add_row(site = site_name,
+            mean_dnbr = mean_dnbr,
+            percent_dnbr_660 = percent_dnbr_660, # Save the percentage in the results
+            burn_severity = Fire_thresholds %>%
+              filter(min <= mean_dnbr & max >= mean_dnbr) %>%
+              dplyr::select(burn_severity) %>%
+              pull())
+  
+  # Debugging message
+  cat(paste0("Processed watershed: ", site_name, 
+             " | Mean dNBR: ", mean_dnbr, 
+             " | % Pixels with dNBR >= 660: ", round(percent_dnbr_660, 2), 
+             "%\n"))
+}
+
+
+
+```
+
+
+
+```{r burn severity distribution}
+# Test the for loop
+# site_names <- c("M02")
+
+# Loop to calculate and plot pixel density for each site
+for (site_name in site_names) {
+  
+  # Filter the shapefile for the current site
+  site_shape <- PRT_EXO_shape %>%
+    filter(site == site_name)
+
+  # Check and transform CRS if necessary
+  if (!compareCRS(dnbr, site_shape)) {
+    site_shape <- st_transform(site_shape, crs(dnbr))
+  }
+
+  # Clip the raster to the site boundary
+  clipped_basin <- mask(dnbr, site_shape)          # Mask the raster using the site polygon
+  cropped_basin <- crop(clipped_basin, site_shape) # Crop the raster to minimize extent
+
+  # Extract pixel values from the clipped raster
+  pixel_values <- values(cropped_basin)            # Get raw pixel values
+  
+  # Remove NA values from the pixel values
+  pixel_values <- pixel_values[!is.na(pixel_values)]
+
+  # Calculate mean dNBR value
+  mean_dnbr <- mean(pixel_values, na.rm = TRUE)
+
+  # Density plot for pixel value distribution
+  density_plot <- ggplot(data.frame(pixel_values = pixel_values), aes(x = pixel_values)) +
+    geom_density(fill = "#0072B2", alpha = 0.5, color = "#0072B2", size = 0.8) +
+    geom_vline(aes(xintercept = mean_dnbr), color = "red", linetype = "dashed", size = 1) +
+    labs(title = paste("Pixel-wise dNBR Density for Site:", site_name), 
+         x = "dNBR Value", 
+         y = "Density") +
+    annotate("text", x = mean_dnbr, y = 0, label = paste("Mean:", round(mean_dnbr, 2)), color = "red", vjust = -1, hjust = 0.5) +
+    theme_minimal()
+
+  # Save the density plot as a JPG file
+  jpeg(filename = paste0(output_directory, site_name, "_pixel_density.jpg"), width = 800, height = 600)
+  print(density_plot)
+  dev.off()
+
+  # Determine burn severity based on thresholds
+  burn_severity <- Fire_thresholds %>%
+    filter(min <= mean_dnbr & max >= mean_dnbr) %>%
+    dplyr::select(burn_severity) %>%
+    pull()
+
+  # Append the results to the results dataframe
+  PRT_EXO_results <- PRT_EXO_results %>%
+    add_row(site = site_name, 
+            mean_dnbr = mean_dnbr, 
+            burn_severity = burn_severity)
+  
+  # Debugging message
+  cat(paste0("Processed watershed: ", site_name, " | Mean dNBR: ", mean_dnbr, " | Burn Severity: ", burn_severity, "\n"))
+}
+
+
+# Initialize an empty data frame to store all pixel values with site names
+combined_pixel_values <- data.frame(pixel_values = numeric(), site_name = character())
+
+# Loop through each site and generate its plot (each site's pixel values are added to the combined dataset)
+for (site_name in site_names) {
+  
+  # Filter the shapefile for the current site
+  site_shape <- PRT_EXO_shape %>%
+    filter(site == site_name)
+
+  # Check and transform CRS if necessary
+  if (!compareCRS(dnbr, site_shape)) {
+    site_shape <- st_transform(site_shape, crs(dnbr))
+  }
+
+  # Clip the raster to the site boundary
+  clipped_basin <- mask(dnbr, site_shape)          # Mask the raster using the site polygon
+  cropped_basin <- crop(clipped_basin, site_shape) # Crop the raster to minimize extent
+
+  # Extract pixel values from the clipped raster
+  pixel_values <- values(cropped_basin)            # Get raw pixel values
+  pixel_values <- pixel_values[!is.na(pixel_values)] # Remove NA values
+
+  # Add pixel values to the combined dataset (with site name)
+  combined_pixel_values <- rbind(combined_pixel_values, 
+                                 data.frame(pixel_values = pixel_values, site_name = site_name))
+
+  # Calculate mean dNBR value
+  mean_dnbr <- mean(pixel_values, na.rm = TRUE)
+
+  # Density plot for the individual site
+  density_plot <- ggplot(data.frame(pixel_values = pixel_values), aes(x = pixel_values)) +
+    geom_density(fill = "#0072B2", alpha = 0.5, color = "#0072B2", size = 0.8) +
+    geom_vline(aes(xintercept = mean_dnbr), color = "red", linetype = "dashed", size = 1) +
+    labs(title = paste("Pixel-wise dNBR Density for Site:", site_name), 
+         x = "dNBR Value", 
+         y = "Density") +
+    annotate("text", x = mean_dnbr, y = 0, label = paste("Mean:", round(mean_dnbr, 2)), color = "red", vjust = -1, hjust = 0.5) +
+    theme_minimal()
+
+  # Save the density plot as a JPG file
+  jpeg(filename = paste0(output_directory, site_name, "_pixel_density.jpg"), width = 800, height = 600)
+  print(density_plot)
+  dev.off()
+}
+
+# Combined density plot (overlay all sites on one graph)
+combined_density_plot <- ggplot(combined_pixel_values, aes(x = pixel_values, color = site_name, fill = site_name)) +
+  geom_density(alpha = 0.4) + # Overlay density curves for each site
+  labs(title = "Overlayed Pixel-wise dNBR Density Across Sites",
+       x = "dNBR Value",
+       y = "Density",
+       color = "Site",
+       fill = "Site") +
+  theme_minimal() +
+  theme(legend.position = "right") # Adjust legend position for clarity
+
+# Save the combined density plot as a JPG file
+jpeg(filename = paste0(output_directory, "combined_pixel_density.jpg"), width = 1000, height = 800)
+print(combined_density_plot)
+dev.off()
+
+```
+
+```{r watershed summary plots}
+EXO_sites_geospatial <- read_csv(here("Retreat_Fire_2024", "output_for_analysis", "02_Retreat_Fire_Site_Selection", "EXO_sites_Oak_Creek_geospatial.csv"))
+
+EXO_sites_geospatial$totdasqkm
+EXO_sites_geospatial$slope
+
+summary_watershed_charac <- EXO_sites_geospatial %>% 
+  dplyr::select(site, streamorde, totdasqkm, minelevsmo, maxelevsmo, elevfixed, slope)
+
+```
 
 
 
