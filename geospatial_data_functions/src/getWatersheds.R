@@ -1,77 +1,65 @@
 getWatersheds <- function(df = sites, massive = TRUE, make_pretty = TRUE){
   
-  # Read in the NHD. This is a table representing all flow direction data across CONUS.
-  nhd <- read_csv('~/GitHub/rc_sfa-fire-watch/geospatial_data_functions/nhd_flow_network.csv')
+  subset_sites <- df %>%
+    distinct(comid, .keep_all = TRUE)
   
-  subset_sites <- df %>% #remove comid duplicates (i.e., samples located in the same catchment)
-    distinct(comid,.keep_all=T)
-
-  watersheds <- function(spid_union){
+  # ---- Get upstream COMIDs for each site via the NLDI web service ----
+  trace_upstream <- function(site_id, site_comid){
+    ut <- tryCatch({
+      nhdplusTools::navigate_nldi(
+        nldi_feature = list(featureSource = "comid",
+                            featureID = as.character(site_comid)),
+        mode          = "UT",           # Upstream with Tributaries
+        distance_km   = 9999            # effectively unlimited
+      )
+    }, error = function(e) NULL)
     
-    tracer <- function(samples){
-      
-      small_db <- as_tibble(subset_sites)
-      
-      outlet <- small_db %>%
-        dplyr::filter(site == samples)
-      
-      upstream_nhd <- get_UT(nhd, outlet$comid) %>% #upstream trace function in nhdplusTools
-        as_tibble() %>%
-        dplyr::rename(comid_list = value) %>%
-        mutate(origin = outlet$comid)
-      
+    if(is.null(ut) || length(ut$UT_flowlines) == 0) {
+      # Fall back to at least the outlet itself
+      return(tibble(origin = site_comid, comid = site_comid))
     }
     
-    ws <- map_dfr(spid_union, tracer)
+    tibble(
+      origin = site_comid,
+      comid  = as.integer(unique(c(site_comid, ut$UT_flowlines$nhdplus_comid)))
+    )
   }
   
-  upstream_list <- subset_sites %>%
-    sf::st_drop_geometry() %>%
-    dplyr::mutate(comid_list = map(site, watersheds)) %>%
-    tidyr::unnest(., cols = comid_list) %>%
-    dplyr::select(origin,
-           comid = comid_list) %>%
-    distinct(.keep_all = TRUE)
+  upstream_list <- purrr::map2_dfr(
+    subset_sites$site,
+    subset_sites$comid,
+    trace_upstream
+  ) %>%
+    dplyr::distinct(origin, comid)
   
-  if(massive == FALSE){ 
+  # ---- Pull catchment polygons ----
+  if(massive == FALSE){
     
     catchments <- vector("list", length = nrow(upstream_list))
-    
-    for(i in 1:nrow(upstream_list)){
-      
-      catchments[[i]] <- try(get_nhdplus(comid = unique(upstream_list$comid[i]),
-                                         realization = 'catchment', 
+    for(i in seq_len(nrow(upstream_list))){
+      catchments[[i]] <- try(get_nhdplus(comid = upstream_list$comid[i],
+                                         realization = 'catchment',
                                          t_srs = 4269))
     }
-    
     catchments <- bind_rows(catchments) %>%
       dplyr::select(comid = featureid)
     
-  }
-  
-  if(massive == TRUE){
-    # If you are running this code across MANY watersheds or watersheds are LARGE (think Mississippi River),
-    # you can make the code faster by using the stored CONUS catchment polygons instead of the code below.
-    # Trade-off is polygons are not the most up-to-date since it uses a static, downloaded version.
-    catchments <- readRDS('~/GitHub/rc_sfa-rc-3-wenas-meta/R_scripts/data/us_catchments.RDS') %>%
+  } else {
+    # Static, pre-downloaded CONUS catchment layer
+    catchments <- readRDS('~/Documents/GitHub/rc_sfa-rc-3-wenas-meta/R_scripts/data/us_catchments.RDS') %>%
       dplyr::rename(comid = FEATUREID) %>%
       dplyr::filter(comid %in% upstream_list$comid)
   }
   
+  # ---- Dissolve to watershed polygon per site ----
   site_watersheds <- merge(catchments, upstream_list, by = 'comid', all.x = FALSE) %>%
     group_by(origin) %>%
     dplyr::summarize() %>%
-    dplyr::rename(comid = origin) #%>%
-    #mutate(comid = as.character(comid))
+    dplyr::rename(comid = origin)
   
-  # Here, an option to remove odd holes that form within the watershed that are due to 
-  # the catchment boundaries not lining up perfectly. However, this MAY introduce wrong watershed
-  # boundaries for watersheds with "closed" systems within them.
   if(make_pretty == TRUE){
-    site_watersheds <- site_watersheds %>%
-    nngeo::st_remove_holes()
+    site_watersheds <- nngeo::st_remove_holes(site_watersheds)
   }
   
   return(site_watersheds)
-  
 }
