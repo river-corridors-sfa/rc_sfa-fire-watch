@@ -123,11 +123,11 @@ Make NHD-based watershed shapefiles for all CONUS sites. To make this step MUCH 
 site_watersheds <- getWatersheds(df = sites, make_pretty = TRUE) %>%
   inner_join(., dplyr::select(sf::st_drop_geometry(sites), site, comid), by = "comid")
 
-# Write the sf object to a shapefile for Oak Creek Tribs
-st_write(site_watersheds, here("Retreat_Fire_2024", "output_for_analysis", "02_Retreat_Fire_Site_Selection", "EXO_sites_Oak_Creek.shp"))
-
-# Export geospatial data for Oak Creek Tribs
-write_csv(sites, here("Retreat_Fire_2024", "output_for_analysis", "02_Retreat_Fire_Site_Selection", "EXO_sites_Oak_Creek_geospatial.csv"))
+# # Write the sf object to a shapefile for Oak Creek Tribs
+# st_write(site_watersheds, here("Retreat_Fire_2024", "output_for_analysis", "02_Retreat_Fire_Site_Selection", "EXO_sites_Oak_Creek.shp"))
+# 
+# # Export geospatial data for Oak Creek Tribs
+# write_csv(sites, here("Retreat_Fire_2024", "output_for_analysis", "02_Retreat_Fire_Site_Selection", "EXO_sites_Oak_Creek_geospatial.csv"))
 
 ```
 
